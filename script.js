@@ -96,6 +96,18 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   }
 
+  // Verify landing companies
+  function verifyLandingCompanies(masterLandingCompany, clientLandingCompany) {
+    if (masterLandingCompany !== clientLandingCompany) {
+      logMessage(
+        `Error: Master (${masterLandingCompany}) and Client (${clientLandingCompany}) must belong to the same landing company.`,
+        "error"
+      );
+      return false;
+    }
+    return true;
+  }
+
   // Enable allow_copiers for master account
   function enableAllowCopiers(callback) {
     const masterWebSocket = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${app_id}`);
@@ -109,10 +121,19 @@ document.addEventListener("DOMContentLoaded", () => {
       const response = JSON.parse(event.data);
 
       if (response.authorize) {
+        const scopes = response.authorize.scopes;
         logMessage(
-          `Master Authenticated: ${response.authorize.loginid}, Balance: ${response.authorize.balance} ${response.authorize.currency}`,
+          `Master Authenticated: ${response.authorize.loginid}, Balance: ${response.authorize.balance} ${response.authorize.currency}, Scopes: ${scopes.join(", ")}`,
           "success"
         );
+
+        if (!scopes.includes("trade")) {
+          logMessage("Error: Master token does not have the required 'trade' scope.", "error");
+          masterWebSocket.close();
+          return;
+        }
+
+        localStorage.setItem("masterLandingCompany", response.authorize.landing_company_name);
 
         masterWebSocket.send(JSON.stringify({ set_settings: 1, allow_copiers: 1 }));
         logMessage("Allow copiers enabled for the master account.", "info");
@@ -152,6 +173,14 @@ document.addEventListener("DOMContentLoaded", () => {
         const response = JSON.parse(event.data);
 
         if (response.authorize) {
+          const clientLandingCompany = response.authorize.landing_company_name;
+          const masterLandingCompany = localStorage.getItem("masterLandingCompany");
+
+          if (!verifyLandingCompanies(masterLandingCompany, clientLandingCompany)) {
+            clientWebSocket.close();
+            return;
+          }
+
           logMessage(
             `Client Authenticated: ${response.authorize.loginid}, Balance: ${response.authorize.balance} ${response.authorize.currency}`,
             "success"
@@ -194,7 +223,7 @@ document.addEventListener("DOMContentLoaded", () => {
           loggedTrades.add(trade.contract_id);
 
           const profitLoss = trade.profit || 0;
-          const tradeMessage = `Trade: ID ${trade.contract_id}, Type: ${trade.contract_type}, Payout: ${trade.payout}, Stake: ${trade.buy_price}, Profit/Loss: ${profitLoss}`;
+          const tradeMessage = `Trade: ID ${trade.contract_id}, Type: ${trade.contract_type}, Asset: ${trade.underlying}, Payout: ${trade.payout}, Stake: ${trade.buy_price}, Profit/Loss: ${profitLoss}`;
           logTrade(tradeMessage, profitLoss >= 0 ? "profit" : "loss");
 
           logMessage(`Copying trade ID ${trade.contract_id} to clients...`, "info");
