@@ -13,6 +13,8 @@
       --text-secondary: #666666;
       --accent: #007AFF;
       --border: rgba(0, 0, 0, 0.1);
+      --oauth-button: #4CAF50;
+      --oauth-button-hover: #45a049;
     }
 
     * {
@@ -200,6 +202,28 @@
       color: var(--text-secondary);
       margin-top: 2rem;
     }
+
+    .oauth-buttons {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+    }
+
+    .oauth-btn {
+      padding: 0.8rem 1.5rem;
+      font-size: 1rem;
+      font-weight: 500;
+      background-color: var(--oauth-button);
+      color: white;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: all 0.3s ease;
+    }
+
+    .oauth-btn:hover {
+      background-color: var(--oauth-button-hover);
+    }
   </style>
 </head>
 <body>
@@ -216,15 +240,15 @@
         <div id="logs" class="scrollable"></div>
       </div>
 
-      <!-- Trades Panel -->
-      <!-- <div class="panel">
-        <h2>Trades</h2>
-        <div id="trades" class="scrollable"></div>
-      </div> -->
-
       <!-- Token Management Panel -->
       <div class="panel">
         <h2>Manage Tokens</h2>
+
+        <!-- OAuth Buttons -->
+        <div class="oauth-buttons">
+          <button id="masterOAuthLogin" class="oauth-btn">Master OAuth Login</button>
+          <button id="clientOAuthLogin" class="oauth-btn">Client OAuth Login</button>
+        </div>
 
         <!-- Master Account Section -->
         <div class="form-group">
@@ -258,4 +282,3 @@
  <script src="script.js"></script>
 </body>
 </html>
-
