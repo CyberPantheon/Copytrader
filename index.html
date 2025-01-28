@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Copy Trading Software V1</title>
+  <title>Copy Trading Software</title>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 
@@ -230,7 +230,7 @@
   <div class="container">
     <header>
       <h1>Copy Trading Software</h1>
-      <p class="subtitle">Made by cyberghost</p>
+      <p class="subtitle">Made by Cyberghost V2</p>
     </header>
 
     <div class="main-container">
@@ -246,15 +246,13 @@
 
         <!-- OAuth Buttons -->
         <div class="oauth-buttons">
-          <button id="masterOAuthLogin" class="oauth-btn">Master OAuth Login</button>
-          <button id="clientOAuthLogin" class="oauth-btn">Client OAuth Login</button>
+          <button id="masterOAuthLogin" class="oauth-btn">Login as Master</button>
         </div>
 
         <!-- Master Account Section -->
         <div class="form-group">
           <label for="masterToken">Master Token</label>
-          <input type="text" id="masterToken" placeholder="Enter Master Token">
-          <button id="addMaster" class="btn">Add Master</button>
+          <input type="text" id="masterToken" placeholder="Master account auto-filled after login" readonly>
         </div>
         <ul id="masterList" class="client-list"></ul>
 
@@ -279,6 +277,6 @@
     </footer>
   </div>
 
- <script src="script.js"></script>
+  <script src="script.js"></script>
 </body>
 </html>
