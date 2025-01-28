@@ -8,7 +8,6 @@ document.addEventListener("DOMContentLoaded", () => {
   const masterTokenInput = document.getElementById("masterToken");
   const clientTokenInput = document.getElementById("clientToken");
   const logs = document.getElementById("logs");
-  const trades = document.getElementById("trades");
   const addClientButton = document.getElementById("addClient");
   const startCopying = document.getElementById("startCopying");
   const stopCopying = document.getElementById("stopCopying");
