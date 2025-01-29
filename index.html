@@ -3,116 +3,30 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Copy Trading Platform</title>
+    <title>Copy Trading Login</title>
     <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #f4f4f4;
-            margin: 0;
-            padding: 0;
-        }
-        .container {
-            width: 90%;
-            max-width: 800px;
-            margin: auto;
-            background: #fff;
-            padding: 20px;
-            box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1);
-            margin-top: 20px;
-        }
-        h2 {
-            text-align: center;
-        }
-        .btn {
-            display: inline-block;
-            padding: 10px;
-            margin: 10px;
-            background: #28a745;
-            color: white;
-            text-align: center;
-            border: none;
-            cursor: pointer;
-        }
-        .btn:hover {
-            background: #218838;
-        }
-        .btn-danger {
-            background: #dc3545;
-        }
-        .btn-danger:hover {
-            background: #c82333;
-        }
-        .input-group {
-            display: flex;
-            margin: 10px 0;
-        }
-        .input-group input {
-            flex: 1;
-            padding: 10px;
-            border: 1px solid #ccc;
-        }
-        .input-group button {
-            padding: 10px;
-            background: #007bff;
-            color: white;
-            border: none;
-            cursor: pointer;
-        }
-        .input-group button:hover {
-            background: #0056b3;
-        }
-        .logs {
-            background: #eef;
-            padding: 10px;
-            margin-top: 20px;
-            height: 150px;
-            overflow-y: auto;
-            font-size: 14px;
-        }
+        body { font-family: Arial, sans-serif; text-align: center; padding: 50px; }
+        .btn { padding: 10px 20px; font-size: 18px; background: #28a745; color: white; border: none; cursor: pointer; }
+        .btn:hover { background: #218838; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        <h2>Copy Trading Software V1</h2>
-        
-        <!-- Login Section -->
-        <button id="loginBtn" class="btn">Login with Deriv</button>
-        <button id="logoutBtn" class="btn btn-danger" style="display:none;">Logout</button>
-        
-        <!-- Master Account Details -->
-        <div id="masterAccount" style="display:none;">
-            <h3>Master Account</h3>
-            <p><strong>Name:</strong> <span id="masterName"></span></p>
-            <p><strong>Account ID:</strong> <span id="masterID"></span></p>
-            <p><strong>Balance:</strong> <span id="masterBalance"></span></p>
-            <button id="enableCopying" class="btn">Enable Copy Trading</button>
-        </div>
-        
-        <!-- Client Management -->
-        <div id="clientsSection" style="display:none;">
-            <h3>Manage Clients</h3>
-            <div class="input-group">
-                <input type="text" id="clientToken" placeholder="Enter Client API Token">
-                <button id="addClient">Add Client</button>
-            </div>
-            <button id="authenticateClients" class="btn">Authenticate Clients</button>
-            <ul id="clientList"></ul>
-        </div>
+    <h2>Welcome to Copy Trading</h2>
+    <p>Click below to log in with your Deriv account.</p>
+    <button id="loginBtn" class="btn">Login with Deriv</button>
 
-        <!-- Copy Trading Controls -->
-        <div id="copyControls" style="display:none;">
-            <h3>Copy Trading</h3>
-            <button id="startCopy" class="btn">Start Copying</button>
-            <button id="stopCopy" class="btn btn-danger">Stop Copying</button>
-        </div>
+    <script>
+        const APP_ID = 66842;
+        document.getElementById("loginBtn").addEventListener("click", () => {
+            window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=${APP_ID}`;
+        });
 
-        <!-- Logs Section -->
-        <div class="logs" id="logs">
-            <h4>Logs</h4>
-        </div>
-    </div>
+        // Check if user is already logged in and redirect
+        if (localStorage.getItem("masterAccount")) {
+            window.location.href = "dashboard.html";
+        }
+    </script>
 
-    <script src="script.js"></script>
 </body>
 </html>
