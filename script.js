@@ -1,6 +1,6 @@
 // Constants
 const APP_ID = 66842;
-const REDIRECT_URL = "http://127.0.0.1:5500/index.html";
+const REDIRECT_URL = "https://cyberpantheon.github.io/Copytrader/";
 
 // Elements
 const loginBtn = document.getElementById("loginBtn");
