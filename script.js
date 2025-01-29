@@ -2,6 +2,7 @@ const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
 let masterAccounts = [];
 let clients = JSON.parse(localStorage.getItem('clients')) || [];
+let currentCallback = null;
 
 // Core initialization flow
 function initWebSocket() {
@@ -19,7 +20,12 @@ function initWebSocket() {
             try {
                 const response = JSON.parse(msg.data);
                 log('Raw API response:', response);
-                handleAPIResponse(response);
+                if (currentCallback) {
+                    currentCallback(response);
+                    currentCallback = null;
+                } else {
+                    handleAPIResponse(response);
+                }
             } catch (error) {
                 log('Message handling error:', error);
             }
@@ -33,6 +39,24 @@ function initWebSocket() {
     } catch (error) {
         log('WebSocket initialization failed:', error);
     }
+}
+
+// Define the log function
+function log(...args) {
+    const logContainer = document.getElementById('logContainer');
+    if (logContainer) {
+        const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ');
+        logContainer.innerHTML += `<div>${message}</div>`;
+        logContainer.scrollTop = logContainer.scrollHeight;
+    }
+    console.log(...args);
+}
+
+// Define the sendRequest function
+function sendRequest(command, params, callback) {
+    const request = JSON.stringify({ ...params, [command]: 1 });
+    ws.send(request);
+    currentCallback = callback;
 }
 
 // OAuth parameter handling
@@ -250,6 +274,23 @@ function startCopying() {
     });
 }
 
+function stopCopying() {
+    if (clients.length === 0) {
+        log('⚠️ Add clients first');
+        return;
+    }
+
+    clients.forEach(client => {
+        sendRequest('copy_stop', {
+            copy_stop: client.token
+        }, (res) => {
+            log(res.copy_stop === 1 
+                ? `✅ Copying stopped for ${client.loginid}`
+                : `❌ Copy stop failed for ${client.loginid}: ${res.error?.message}`);
+        });
+    });
+}
+
 // Persistence
 function saveMasterAccounts() {
     localStorage.setItem('masterAccounts', JSON.stringify(masterAccounts));
@@ -279,3 +320,9 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     log('System initialized');
 });
+
+function logout() {
+    // Clear all stored data and reload the page
+    localStorage.clear();
+    window.location.href = 'index.html';
+}
