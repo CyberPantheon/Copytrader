@@ -1,94 +1,203 @@
-const REDIRECT_URL = "dashboard.html";
-const masterAccount = JSON.parse(localStorage.getItem("masterAccount"));
-const clientAccounts = JSON.parse(localStorage.getItem("clients")) || [];
+const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=YOUR_APP_ID';
+let ws;
+let masterAccounts = [];
+let clients = [];
+let currentMasterToken = '';
 
-if (!masterAccount && window.location.pathname.includes("dashboard.html")) {
-    window.location.href = "index.html";
+// Initialize WebSocket connection
+function initWebSocket() {
+    ws = new WebSocket(API_URL);
+    
+    ws.onopen = () => {
+        log('Connected to Deriv API');
+        const params = new URLSearchParams(localStorage.getItem('deriv_oauth_params'));
+        handleOAuthParams(params);
+    };
+
+    ws.onmessage = (msg) => {
+        const response = JSON.parse(msg.data);
+        handleAPIResponse(response);
+    };
+
+    ws.onerror = (error) => {
+        log(`WebSocket error: ${error.message}`);
+    };
 }
 
-function logMessage(message) {
-    const logsDiv = document.getElementById("logs");
-    if (!logsDiv) return;
-    const logEntry = document.createElement("p");
-    logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-    logsDiv.appendChild(logEntry);
-    logsDiv.scrollTop = logsDiv.scrollHeight;
-}
+function handleOAuthParams(params) {
+    const accounts = [];
+    let index = 1;
+    
+    while (params.has(`acct${index}`)) {
+        accounts.push({
+            loginid: params.get(`acct${index}`),
+            token: params.get(`token${index}`),
+            currency: params.get(`cur${index}`)
+        });
+        index++;
+    }
 
-async function authorizeUser(token) {
-    const response = await fetch("wss://ws.deriv.com/websockets/v3", {
-        method: "POST",
-        body: JSON.stringify({ authorize: token })
-    });
-
-    const data = await response.json();
-    if (data.authorize) {
-        localStorage.setItem("masterAccount", JSON.stringify({
-            name: data.authorize.fullname,
-            loginid: data.authorize.loginid,
-            balance: data.authorize.balance,
-            token
-        }));
-        window.location.href = REDIRECT_URL;
-    } else {
-        logMessage("Authorization failed.");
+    if (accounts.length > 0) {
+        currentMasterToken = accounts[0].token;
+        authenticateMaster(accounts);
     }
 }
 
-function extractTokens() {
-    const params = new URLSearchParams(window.location.search);
-    let foundToken = null;
+function authenticateMaster(accounts) {
+    accounts.forEach(account => {
+        sendRequest('authorize', { authorize: account.token }, (res) => {
+            if (!res.error) {
+                masterAccounts.push({
+                    ...res.authorize,
+                    token: account.token
+                });
+                enableCopiers(res.authorize.loginid);
+                updateMasterDisplay();
+            }
+        });
+    });
+}
 
-    params.forEach((value, key) => {
-        if (key.startsWith("token")) {
-            foundToken = value;
+function enableCopiers(loginid) {
+    sendRequest('set_settings', {
+        set_settings: 1,
+        loginid,
+        allow_copiers: 1
+    }, (res) => {
+        if (res.set_settings === 1) {
+            log(`Allow copiers enabled for ${loginid}`);
         }
     });
-
-    if (foundToken) {
-        authorizeUser(foundToken);
-    }
 }
 
-if (!masterAccount) {
-    extractTokens();
-} else {
-    document.getElementById("masterName").textContent = masterAccount.name;
-    document.getElementById("masterID").textContent = masterAccount.loginid;
-    document.getElementById("masterBalance").textContent = masterAccount.balance;
-}
+function addClient() {
+    const tokenInput = document.getElementById('clientToken');
+    const token = tokenInput.value.trim();
+    
+    if (!token) return;
 
-document.getElementById("logoutBtn").addEventListener("click", () => {
-    localStorage.clear();
-    window.location.href = "index.html";
-});
+    sendRequest('authorize', { authorize: token }, (res) => {
+        if (res.error) {
+            log(`Client authentication failed: ${res.error.message}`);
+            return;
+        }
 
-document.getElementById("enableCopying").addEventListener("click", async () => {
-    const response = await fetch("wss://ws.deriv.com/websockets/v3", {
-        method: "POST",
-        body: JSON.stringify({ set_settings: 1, allow_copiers: 1, loginid: masterAccount.loginid })
+        const client = {
+            ...res.authorize,
+            token
+        };
+
+        if (validateClient(client)) {
+            clients.push(client);
+            saveClients();
+            updateClientDisplay();
+            log(`Client ${client.loginid} added successfully`);
+            tokenInput.value = '';
+        }
     });
+}
 
-    const data = await response.json();
-    logMessage(data.set_settings === 1 ? "Copy Trading Enabled" : "Failed to Enable Copy Trading");
-});
-
-document.getElementById("startCopy").addEventListener("click", async () => {
-    for (let client of clientAccounts) {
-        const response = await fetch("wss://ws.deriv.com/websockets/v3", {
-            method: "POST",
-            body: JSON.stringify({ copy_start: masterAccount.token, loginid: client.loginid })
-        });
-        logMessage("Started Copying for " + client.loginid);
+function validateClient(client) {
+    const masterIsVirtual = masterAccounts[0].is_virtual;
+    if (client.is_virtual !== masterIsVirtual) {
+        log('Error: Client and master must be both real or both virtual');
+        return false;
     }
-});
+    return true;
+}
 
-document.getElementById("stopCopy").addEventListener("click", async () => {
-    for (let client of clientAccounts) {
-        const response = await fetch("wss://ws.deriv.com/websockets/v3", {
-            method: "POST",
-            body: JSON.stringify({ copy_stop: masterAccount.token, loginid: client.loginid })
+function startCopying() {
+    clients.forEach(client => {
+        sendRequest('copy_start', {
+            copy_start: client.token,
+            assets: ['frxUSDJPY'],
+            max_trade_stake: 100
+        }, (res) => {
+            if (res.copy_start === 1) {
+                log(`Copying started for ${client.loginid}`);
+            }
         });
-        logMessage("Stopped Copying for " + client.loginid);
+    });
+}
+
+function stopCopying() {
+    clients.forEach(client => {
+        sendRequest('copy_stop', {
+            copy_stop: client.token
+        }, (res) => {
+            if (res.copy_stop === 1) {
+                log(`Copying stopped for ${client.loginid}`);
+            }
+        });
+    });
+}
+
+function sendRequest(type, data, callback) {
+    const req = { ...data, req_id: Date.now() };
+    ws.send(JSON.stringify(req));
+    
+    const listener = (msg) => {
+        const response = JSON.parse(msg.data);
+        if (response.req_id === req.req_id) {
+            callback(response);
+            ws.removeEventListener('message', listener);
+        }
+    };
+    
+    ws.addEventListener('message', listener);
+}
+
+function updateMasterDisplay() {
+    const container = document.getElementById('masterAccounts');
+    container.innerHTML = masterAccounts.map(acc => `
+        <div class="account-card">
+            <h4>${acc.loginid}</h4>
+            <p>${acc.currency} ${acc.balance}</p>
+            <p>${acc.landing_company_name}</p>
+        </div>
+    `).join('');
+}
+
+function updateClientDisplay() {
+    const container = document.getElementById('clientList');
+    container.innerHTML = clients.map(client => `
+        <div class="client-item">
+            <div>
+                <strong>${client.loginid}</strong>
+                <div>${client.currency} ${client.balance}</div>
+            </div>
+            <div>${client.token.slice(0, 6)}...${client.token.slice(-4)}</div>
+        </div>
+    `).join('');
+}
+
+function log(message) {
+    const logContainer = document.getElementById('logContainer');
+    const entry = document.createElement('p');
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    logContainer.appendChild(entry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+function saveClients() {
+    localStorage.setItem('clients', JSON.stringify(clients));
+}
+
+function loadClients() {
+    const stored = localStorage.getItem('clients');
+    if (stored) clients = JSON.parse(stored);
+}
+
+function logout() {
+    localStorage.removeItem('deriv_oauth_params');
+    window.location.href = 'index.html';
+}
+
+// Initialization
+document.addEventListener('DOMContentLoaded', () => {
+    if (!localStorage.getItem('deriv_oauth_params')) {
+        window.location.href = 'index.html';
     }
+    loadClients();
+    initWebSocket();
 });
