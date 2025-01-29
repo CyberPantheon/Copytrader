@@ -192,27 +192,35 @@ function validateClient(client) {
     return true;
 }
 
-// Copy Trading Controls
+// Fixed Copy Trading Controls
 window.startCopying = function() {
     if (!selectedAccount) {
         log('Please select a master account first');
         return;
     }
 
+    if (clients.length === 0) {
+        log('No clients added for copying');
+        return;
+    }
+
     clients.forEach(client => {
         sendRequest('copy_start', {
             copy_start: client.token,
-            assets: ['frxUSDJPY'],
-            max_trade_stake: 100
+            trade_types: ["CALL", "PUT", "CALLE", "PUTE", "DIGITMATCH", "DIGITDIFF", 
+                        "DIGITEVEN", "DIGITODD", "DIGITOVER", "DIGITUNDER", 
+                        "EXPIRYRANGE", "EXPIRYMISS", "RANGE", "UPORDOWN", 
+                        "ONETOUCH", "NOTOUCH", "ASIANU", "ASIAND", 
+                        "DIGITMATCH_DIGITDIFF"]
         }, response => {
             if (response.copy_start === 1) {
                 log(`Copying started for ${client.loginid}`);
             } else {
-                log(`Failed to start copying for ${client.loginid}`);
+                log(`Failed to start copying for ${client.loginid}: ${response.error?.message || 'Unknown error'}`);
             }
         });
     });
-}
+};
 
 window.stopCopying = function() {
     clients.forEach(client => {
@@ -222,7 +230,7 @@ window.stopCopying = function() {
             if (response.copy_stop === 1) {
                 log(`Copying stopped for ${client.loginid}`);
             } else {
-                log(`Failed to stop copying for ${client.loginid}`);
+                log(`Failed to stop copying for ${client.loginid}: ${response.error?.message || 'Unknown error'}`);
             }
         });
     });
