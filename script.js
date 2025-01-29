@@ -1,135 +1,106 @@
 const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
-let masterAccounts = [];
-let clients = JSON.parse(localStorage.getItem('clients') || '[]');
+let masterAccounts = JSON.parse(localStorage.getItem('masterAccounts')) || [];
+let clients = JSON.parse(localStorage.getItem('clients')) || [];
+let selectedAccount = null;
 
-// Core initialization flow
+// WebSocket Management
 function initWebSocket() {
-    try {
-        if (ws) ws.close();
-        
-        ws = new WebSocket(API_URL);
-        
-        ws.onopen = () => {
-            log('WebSocket connection established');
-            processOAuthParams();
-        };
-
-        ws.onmessage = (msg) => {
-            try {
-                const response = JSON.parse(msg.data);
-                log('Raw API response:', response);
-                handleAPIResponse(response);
-            } catch (error) {
-                log('Message handling error:', error);
-            }
-        };
-
-        ws.onerror = (error) => log('WebSocket error:', error);
-        ws.onclose = () => {
-            log('Connection closed - attempting reconnect in 5s');
-            setTimeout(initWebSocket, 5000);
-        };
-    } catch (error) {
-        log('WebSocket initialization failed:', error);
-    }
-}
-
-// Define the missing log function
-function log(...args) {
-    const logContainer = document.getElementById('logContainer');
-    if (logContainer) {
-        const message = args.map(arg => typeof arg === 'object' ? JSON.stringify(arg) : arg).join(' ');
-        logContainer.innerHTML += `<div>${message}</div>`;
-        logContainer.scrollTop = logContainer.scrollHeight;
-    }
-    console.log(...args);
-}
-
-// Define the missing sendRequest function
-function sendRequest(command, params, callback) {
-    const request = JSON.stringify({ ...params, request: command });
-    ws.send(request);
-
-    ws.onmessage = (msg) => {
-        const response = JSON.parse(msg.data);
-        callback(response);
-    };
-}
-
-// OAuth parameter handling
-function processOAuthParams() {
-    try {
-        log('Processing OAuth parameters');
-        const params = new URLSearchParams(window.location.search);
-        const accounts = [];
-        
-        let index = 1;
-        while (params.has(`acct${index}`)) {
-            accounts.push({
-                loginid: params.get(`acct${index}`),
-                token: params.get(`token${index}`),
-                currency: params.get(`cur${index}`)
-            });
-            index++;
-        }
-
-        window.history.replaceState({}, document.title, window.location.pathname);
-
-        if (accounts.length > 0) {
-            log(`Found ${accounts.length} master accounts`);
-            authenticateMaster(accounts);
+    ws = new WebSocket(API_URL);
+    
+    ws.onopen = () => {
+        log('Connected to Deriv API');
+        if (masterAccounts.length > 0) {
+            reauthenticateMasters();
         } else {
-            log('No OAuth parameters found');
-            loadPersistedData();
+            processOAuthParams();
         }
-    } catch (error) {
-        log('OAuth processing failed:', error);
+    };
+
+    ws.onmessage = handleMessage;
+    ws.onerror = handleError;
+    ws.onclose = handleClose;
+}
+
+function handleMessage(event) {
+    const response = JSON.parse(event.data);
+    log(`Received: ${JSON.stringify(response)}`);
+    
+    if (response.authorize) {
+        handleAuthorization(response);
+    }
+    else if (response.set_settings) {
+        handleSettingsResponse(response);
+    }
+    else if (response.copy_start || response.copy_stop) {
+        handleCopyResponse(response);
     }
 }
 
-// Authentication core
-function authenticateMaster(accounts) {
-    try {
-        log('Authenticating master accounts');
-        masterAccounts = [];
-        
-        accounts.forEach(account => {
-            sendRequest('authorize', { authorize: account.token }, (res) => {
-                if (res.error) {
-                    log(`Authentication failed for ${account.loginid}:`, res.error.message);
-                    return;
-                }
-                
-                log(`Successfully authenticated ${account.loginid}`);
-                const masterAccount = {
-                    ...res.authorize,
+function handleError(error) {
+    log(`WebSocket Error: ${error.message}`);
+}
+
+function handleClose() {
+    log('WebSocket connection closed');
+    setTimeout(initWebSocket, 5000); // Reconnect after 5 seconds
+}
+
+// Master Account Management
+function processOAuthParams() {
+    const params = new URLSearchParams(window.location.search);
+    const accounts = [];
+    
+    let index = 1;
+    while (params.has(`acct${index}`)) {
+        accounts.push({
+            loginid: params.get(`acct${index}`),
+            token: params.get(`token${index}`),
+            currency: params.get(`cur${index}`)
+        });
+        index++;
+    }
+
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    if (accounts.length > 0) {
+        authenticateMasters(accounts);
+    } else {
+        log('No master accounts found');
+    }
+}
+
+function authenticateMasters(accounts) {
+    accounts.forEach(account => {
+        sendRequest('authorize', { authorize: account.token }, response => {
+            if (!response.error) {
+                const master = {
+                    ...response.authorize,
                     token: account.token,
-                    loginid: account.loginid,
-                    allowCopiers: false
+                    loginid: account.loginid
                 };
                 
-                masterAccounts.push(masterAccount);
-                updateAccountDetails(masterAccount);
-                updateMasterDisplay();
-                saveMasterAccounts();
-            });
+                if (!masterAccounts.some(a => a.loginid === master.loginid)) {
+                    masterAccounts.push(master);
+                    saveMasters();
+                    updateMasterDisplay();
+                    log(`Authenticated: ${master.loginid}`);
+                }
+            }
         });
-    } catch (error) {
-        log('Master authentication failed:', error);
-    }
+    });
 }
 
-// Account management
-function updateAccountDetails(account) {
-    sendRequest('get_settings', { 
-        get_settings: 1,
-        loginid: account.loginid
-    }, (res) => {
-        if (res.get_settings) {
-            account.allowCopiers = res.get_settings.allow_copiers === 1;
-            updateMasterDisplay();
-        }
+function reauthenticateMasters() {
+    masterAccounts.forEach(account => {
+        sendRequest('authorize', { authorize: account.token }, response => {
+            if (response.error) {
+                log(`Reauthentication failed for ${account.loginid}`);
+                masterAccounts = masterAccounts.filter(a => a.loginid !== account.loginid);
+                saveMasters();
+                updateMasterDisplay();
+            }
+        });
     });
 }
 
@@ -141,121 +112,65 @@ function enableCopiers(loginid) {
         set_settings: 1,
         loginid,
         allow_copiers: 1
-    }, (res) => {
-        account.allowCopiers = res.set_settings === 1;
-        updateMasterDisplay();
-        log(account.allowCopiers 
-            ? `✅ Copiers enabled for ${loginid}`
-            : `❌ Failed to enable copiers for ${loginid}`);
+    }, response => {
+        if (response.set_settings === 1) {
+            log(`Allow copiers enabled for ${loginid}`);
+            selectedAccount = loginid;
+        } else {
+            log(`Failed to enable copiers for ${loginid}`);
+        }
     });
 }
 
-// UI updates
-function updateMasterDisplay() {
-    try {
-        const container = document.getElementById('masterAccounts');
-        if (!container) return;
-
-        container.innerHTML = masterAccounts.map(acc => `
-            <div class="account-item">
-                <div class="account-header">
-                    <div>
-                        <strong>${acc.loginid}</strong>
-                        <div>${acc.fullname} - ${acc.currency} ${acc.balance}</div>
-                    </div>
-                    <button class="allow-copiers-btn ${acc.allowCopiers ? 'disabled' : ''}" 
-                            onclick="enableCopiers('${acc.loginid}')"
-                            ${acc.allowCopiers ? 'disabled' : ''}>
-                        ${acc.allowCopiers ? 'Copiers Enabled' : 'Enable Copiers'}
-                    </button>
-                </div>
-                <div class="account-details">
-                    Type: ${acc.is_virtual ? 'Virtual' : 'Real'} | 
-                    Company: ${acc.landing_company_name}
-                </div>
-            </div>
-        `).join('');
-    } catch (error) {
-        log('Master display update failed:', error);
-    }
-}
-
-// Client management
-function addClient() {
-    try {
-        const tokenInput = document.getElementById('clientToken');
-        const token = tokenInput.value.trim();
-        
-        if (!token) {
-            log('⚠️ Please enter a client token');
-            return;
-        }
-
-        if (clients.some(c => c.token === token)) {
-            log('⚠️ Client already exists');
-            return;
-        }
-
-        sendRequest('authorize', { authorize: token }, (res) => {
-            if (res.error) {
-                log(`❌ Client auth failed: ${res.error.message}`);
-                return;
-            }
-
-            const client = {
-                ...res.authorize,
-                token: token
-            };
-
-            if (validateClient(client)) {
-                clients.push(client);
-                saveClients();
-                updateClientDisplay();
-                log(`✅ Client ${client.loginid} added`);
-                tokenInput.value = '';
-            }
-        });
-    } catch (error) {
-        log('Client add failed:', error);
-    }
-}
-
-// Validation
-function validateClient(client) {
-    try {
-        if (masterAccounts.length === 0) {
-            log('❌ No master account selected');
-            return false;
-        }
-        
-        const master = masterAccounts.find(a => a.allowCopiers);
-        if (!master) {
-            log('❌ Enable copiers on a master account first');
-            return false;
-        }
-
-        if (client.is_virtual !== master.is_virtual) {
-            log(`❌ Client must be ${master.is_virtual ? 'virtual' : 'real'} like master`);
-            return false;
-        }
-        
-        return true;
-    } catch (error) {
-        log('Validation failed:', error);
-        return false;
-    }
-}
-
-// System operations
-function startCopying() {
-    if (clients.length === 0) {
-        log('⚠️ Add clients first');
+// Client Management
+window.addClient = function() {
+    const tokenInput = document.getElementById('clientToken');
+    const token = tokenInput.value.trim();
+    
+    if (!token) {
+        log('Please enter a client token');
         return;
     }
 
-    const master = masterAccounts.find(a => a.allowCopiers);
-    if (!master) {
-        log('⚠️ Select a master account with copiers enabled');
+    sendRequest('authorize', { authorize: token }, response => {
+        if (response.error) {
+            log(`Client error: ${response.error.message}`);
+            return;
+        }
+
+        const client = {
+            ...response.authorize,
+            token: token
+        };
+
+        if (validateClient(client)) {
+            clients.push(client);
+            saveClients();
+            updateClientDisplay();
+            log(`Client added: ${client.loginid}`);
+            tokenInput.value = '';
+        }
+    });
+}
+
+function validateClient(client) {
+    if (!selectedAccount) {
+        log('Please select a master account first');
+        return false;
+    }
+    
+    const master = masterAccounts.find(a => a.loginid === selectedAccount);
+    if (client.is_virtual !== master.is_virtual) {
+        log('Client must match master account type');
+        return false;
+    }
+    return true;
+}
+
+// Copy Trading Controls
+window.startCopying = function() {
+    if (!selectedAccount) {
+        log('Please select a master account first');
         return;
     }
 
@@ -264,33 +179,91 @@ function startCopying() {
             copy_start: client.token,
             assets: ['frxUSDJPY'],
             max_trade_stake: 100
-        }, (res) => {
-            log(res.copy_start === 1 
-                ? `✅ Copying started for ${client.loginid}`
-                : `❌ Copy failed for ${client.loginid}: ${res.error?.message}`);
+        }, response => {
+            if (response.copy_start === 1) {
+                log(`Copying started for ${client.loginid}`);
+            } else {
+                log(`Failed to start copying for ${client.loginid}`);
+            }
         });
     });
 }
 
-function stopCopying() {
-    if (clients.length === 0) {
-        log('⚠️ Add clients first');
-        return;
-    }
-
+window.stopCopying = function() {
     clients.forEach(client => {
         sendRequest('copy_stop', {
             copy_stop: client.token
-        }, (res) => {
-            log(res.copy_stop === 1 
-                ? `✅ Copying stopped for ${client.loginid}`
-                : `❌ Copy stop failed for ${client.loginid}: ${res.error?.message}`);
+        }, response => {
+            if (response.copy_stop === 1) {
+                log(`Copying stopped for ${client.loginid}`);
+            } else {
+                log(`Failed to stop copying for ${client.loginid}`);
+            }
         });
     });
 }
 
-// Persistence
-function saveMasterAccounts() {
+// UI Functions
+function updateMasterDisplay() {
+    const dropdownContent = document.getElementById('dropdownContent');
+    dropdownContent.innerHTML = masterAccounts.map(acc => `
+        <div class="account-item">
+            <div>
+                <strong>${acc.loginid}</strong>
+                <div>${acc.fullname} - ${acc.currency} ${acc.balance}</div>
+            </div>
+            <button class="btn btn-primary" onclick="enableCopiers('${acc.loginid}')">
+                ${selectedAccount === acc.loginid ? '✔ Enabled' : 'Enable Copiers'}
+            </button>
+        </div>
+    `).join('');
+}
+
+function updateClientDisplay() {
+    const clientList = document.getElementById('clientList');
+    clientList.innerHTML = clients.map(client => `
+        <div class="client-item">
+            <div>
+                <strong>${client.loginid}</strong>
+                <div>${client.fullname} - ${client.currency} ${client.balance}</div>
+            </div>
+            <div>${client.token.slice(0, 6)}...${client.token.slice(-4)}</div>
+        </div>
+    `).join('');
+}
+
+window.toggleDropdown = function() {
+    const dropdown = document.getElementById('dropdownContent');
+    dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+}
+
+// Utilities
+function sendRequest(type, data, callback) {
+    const req_id = Date.now();
+    const request = { ...data, req_id };
+    
+    ws.send(JSON.stringify(request));
+    
+    const listener = (event) => {
+        const response = JSON.parse(event.data);
+        if (response.req_id === req_id) {
+            callback(response);
+            ws.removeEventListener('message', listener);
+        }
+    };
+    
+    ws.addEventListener('message', listener);
+}
+
+function log(message) {
+    const logContainer = document.getElementById('logContainer');
+    const entry = document.createElement('div');
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    logContainer.appendChild(entry);
+    logContainer.scrollTop = logContainer.scrollHeight;
+}
+
+function saveMasters() {
     localStorage.setItem('masterAccounts', JSON.stringify(masterAccounts));
 }
 
@@ -298,29 +271,22 @@ function saveClients() {
     localStorage.setItem('clients', JSON.stringify(clients));
 }
 
-function loadPersistedData() {
-    try {
-        const masters = localStorage.getItem('masterAccounts');
-        if (masters) {
-            masterAccounts = JSON.parse(masters);
-            updateMasterDisplay();
-        }
-    } catch (error) {
-        log('Master load failed:', error);
-    }
+window.logout = function() {
+    localStorage.clear();
+    if (ws) ws.close();
+    window.location.href = 'index.html';
 }
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
     initWebSocket();
-    document.getElementById('clientToken')?.addEventListener('keypress', e => {
-        if (e.key === 'Enter') addClient();
+    updateMasterDisplay();
+    updateClientDisplay();
+    
+    // Close dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+        if (!e.target.closest('.accounts-dropdown')) {
+            document.getElementById('dropdownContent').style.display = 'none';
+        }
     });
-    log('System initialized');
 });
-
-function logout() {
-    // Clear all stored data and reload the page
-    localStorage.clear();
-    window.location.href = 'index.html';
-}
