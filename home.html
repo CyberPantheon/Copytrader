@@ -34,9 +34,9 @@
         }
 
         .btn {
-            padding: 10px 20px;
+            padding: 8px 16px;
             border: none;
-            border-radius: 5px;
+            border-radius: 4px;
             cursor: pointer;
             transition: all 0.3s ease;
         }
@@ -53,56 +53,47 @@
 
         .section {
             background-color: var(--background-medium);
-            border-radius: 10px;
+            border-radius: 8px;
             padding: 20px;
             margin-bottom: 20px;
         }
 
-        .account-selector {
-            margin-bottom: 20px;
+        .accounts-dropdown {
+            position: relative;
+            width: 100%;
+            margin-top: 15px;
         }
 
-        .account-dropdown {
+        .dropdown-header {
+            padding: 12px;
             background: rgba(0, 0, 0, 0.3);
             border: 1px solid var(--primary-color);
-            border-radius: 8px;
-            max-height: 400px;
-            overflow-y: auto;
-        }
-
-        .account-item {
-            padding: 15px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-        }
-
-        .account-header {
+            border-radius: 6px;
+            cursor: pointer;
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
         }
 
-        .account-details {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-            gap: 10px;
-            color: var(--text-muted);
-            font-size: 0.9em;
+        .dropdown-content {
+            position: absolute;
+            width: 100%;
+            max-height: 300px;
+            overflow-y: auto;
+            background: var(--background-medium);
+            border: 1px solid var(--primary-color);
+            border-radius: 6px;
+            margin-top: 5px;
+            z-index: 1000;
+            display: none;
         }
 
-        .allow-copiers-btn {
-            background: var(--primary-color);
-            color: var(--background-dark);
-            padding: 8px 15px;
-            border-radius: 5px;
-            border: none;
-            cursor: pointer;
-            transition: opacity 0.3s ease;
-        }
-
-        .allow-copiers-btn.disabled {
-            background: #666;
-            cursor: not-allowed;
+        .account-item {
+            padding: 12px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
         }
 
         .client-list {
@@ -113,17 +104,17 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            padding: 15px;
+            padding: 12px;
             background: rgba(255, 255, 255, 0.05);
             margin-bottom: 10px;
-            border-radius: 5px;
+            border-radius: 6px;
         }
 
         .log-container {
             background-color: #000;
             color: var(--primary-color);
             padding: 15px;
-            border-radius: 5px;
+            border-radius: 6px;
             height: 200px;
             overflow-y: auto;
             font-family: monospace;
@@ -140,30 +131,26 @@
             padding: 10px;
             background: rgba(255, 255, 255, 0.1);
             border: 1px solid var(--primary-color);
-            border-radius: 5px;
+            border-radius: 6px;
             color: var(--text-light);
-        }
-
-        .token-display {
-            font-size: 0.8em;
-            color: var(--text-muted);
-            word-break: break-all;
         }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h2>Copy Trading Dashboard v4</h2>
+            <h2>Copy Trading Dashboard v6 rethink</h2>
             <button class="btn btn-danger" onclick="logout()">Logout</button>
         </div>
 
         <div class="section">
             <h3>Master Accounts</h3>
-            <div class="account-selector">
-                <div class="account-dropdown" id="masterAccounts">
-                    <!-- Master accounts will be populated here -->
+            <div class="accounts-dropdown" id="masterAccountsDropdown">
+                <div class="dropdown-header" onclick="toggleDropdown()">
+                    <span>Select Master Account</span>
+                    <span>▼</span>
                 </div>
+                <div class="dropdown-content" id="dropdownContent"></div>
             </div>
         </div>
 
