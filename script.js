@@ -1,7 +1,7 @@
 const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
 let masterAccounts = [];
-let clients = JSON.parse(localStorage.getItem('clients') || '[]');
+let clients = JSON.parse(localStorage.getItem('clients')) || [];
 let currentCallback = null;
 
 // Core initialization flow
@@ -124,7 +124,10 @@ function authenticateMaster(accounts) {
 
 // Account management
 function updateAccountDetails(account) {
-    sendRequest('get_settings', { get_settings: 1, loginid: account.loginid }, (res) => {
+    sendRequest('get_settings', { 
+        get_settings: 1,
+        loginid: account.loginid
+    }, (res) => {
         if (res.get_settings) {
             account.allowCopiers = res.get_settings.allow_copiers === 1;
             updateMasterDisplay();
