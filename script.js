@@ -1,139 +1,152 @@
 const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
-let masterAccounts = JSON.parse(localStorage.getItem('masterAccounts')) || [];
+let masterAccounts = [];
 let clients = JSON.parse(localStorage.getItem('clients')) || [];
-let selectedAccount = null;
 
-function handleAPIResponse(response) {
-    try {
-        log(`Received: ${JSON.stringify(response)}`);
-        if (response.authorize) handleAuthorization(response);
-        else if (response.get_settings) handleGetSettings(response);
-        else if (response.set_settings) handleSetSettings(response);
-        else if (response.copy_start || response.copy_stop) handleCopyResponse(response);
-        else if (response.error) log(`Error: ${response.error.message}`);
-    } catch (error) {
-        log(`Response handling error: ${error.message}`);
-    }
-}
-
-function handleAuthorization(response) {
-    const account = masterAccounts.find(acc => acc.loginid === response.authorize.loginid);
-    if (account) {
-        Object.assign(account, response.authorize);
-        saveMasterAccounts();
-        updateMasterDisplay();
-    }
-}
-
+// 1. Restore working initialization flow
 function initWebSocket() {
-    if (ws && ws.readyState === WebSocket.OPEN) ws.close();
+    if (ws) ws.close();
+    
     ws = new WebSocket(API_URL);
     
     ws.onopen = () => {
         log('Connected to Deriv API');
+        processOAuthParams();
         loadPersistedData();
-        masterAccounts.forEach(acc => {
-            sendRequest('authorize', { authorize: acc.token }, handleAuthorization);
-        });
     };
-    
-    ws.onmessage = (msg) => handleAPIResponse(JSON.parse(msg.data));
+
+    ws.onmessage = (msg) => {
+        try {
+            const response = JSON.parse(msg.data);
+            handleAPIResponse(response);
+        } catch (error) {
+            log(`Message parsing error: ${error.message}`);
+        }
+    };
+
     ws.onerror = (error) => log(`WebSocket error: ${error.message}`);
     ws.onclose = () => {
-        log('WebSocket closed, reconnecting...');
+        log('WebSocket connection closed');
         setTimeout(initWebSocket, 5000);
     };
 }
 
-function sendRequest(type, data, callback) {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        log('WebSocket not connected');
-        return;
+// 2. Fix OAuth processing sequence
+function processOAuthParams() {
+    const params = new URLSearchParams(window.location.search);
+    const accounts = [];
+    let index = 1;
+    
+    while (params.has(`acct${index}`)) {
+        accounts.push({
+            loginid: params.get(`acct${index}`),
+            token: params.get(`token${index}`),
+            currency: params.get(`cur${index}`)
+        });
+        index++;
     }
-    
-    const req = { ...data, req_id: Date.now() };
-    ws.send(JSON.stringify(req));
-    ws.addEventListener('message', function listener(msg) {
-        const response = JSON.parse(msg.data);
-        if (response.req_id === req.req_id) {
-            callback(response);
-            ws.removeEventListener('message', listener);
-        }
-    });
-}
 
-function validateClient(client) {
-    const master = masterAccounts.find(a => a.allowCopiers);
-    if (!master) {
-        log('No master account with copiers enabled');
-        return false;
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    if (accounts.length > 0) {
+        authenticateMaster(accounts);
     }
-    return client.is_virtual === master.is_virtual;
 }
 
-function addClient() {
-    const token = document.getElementById('clientToken').value.trim();
-    if (!token) return log('Enter a client API token');
-    if (clients.some(c => c.token === token)) return log('Client already exists');
-    
-    sendRequest('authorize', { authorize: token }, (res) => {
-        if (res.error) return log(`Client authentication failed: ${res.error.message}`);
-        
-        const client = { ...res.authorize, token };
-        if (validateClient(client)) {
-            clients.push(client);
-            saveClients();
-            updateClientDisplay();
-            log(`Client ${client.loginid} added`);
+// 3. Maintain original authentication flow
+function authenticateMaster(accounts) {
+    masterAccounts = []; // Reset existing accounts
+    accounts.forEach(account => {
+        sendRequest('authorize', { authorize: account.token }, (res) => {
+            if (!res.error) {
+                const masterAccount = {
+                    ...res.authorize,
+                    token: account.token,
+                    loginid: account.loginid,
+                    allowCopiers: false
+                };
+                masterAccounts.push(masterAccount);
+                updateAccountDetails(masterAccount);
+                updateMasterDisplay();
+            }
+        });
+    });
+}
+
+// 4. Fix response handling chain
+function handleAPIResponse(response) {
+    if (response.authorize) {
+        const account = masterAccounts.find(a => a.token === response.echo_req.authorize);
+        if (account) {
+            Object.assign(account, response.authorize);
+            updateMasterDisplay();
         }
-    });
+    }
+    else if (response.get_settings) {
+        const account = masterAccounts.find(a => a.loginid === response.echo_req.loginid);
+        if (account) {
+            account.allowCopiers = response.get_settings.allow_copiers === 1;
+            updateMasterDisplay();
+        }
+    }
+    else if (response.set_settings) {
+        const account = masterAccounts.find(a => a.loginid === response.echo_req.loginid);
+        if (account) {
+            account.allowCopiers = response.set_settings === 1;
+            updateMasterDisplay();
+        }
+    }
+    else if (response.error) {
+        log(`Error: ${response.error.message}`);
+    }
 }
 
-function startCopying() {
-    const master = masterAccounts.find(a => a.allowCopiers);
-    if (!master) return log('No master account with copiers enabled');
-    
-    clients.forEach(client => {
-        sendRequest('copy_start', { copy_start: client.token, assets: ['frxUSDJPY'], max_trade_stake: 100, trade_types: ['CALL', 'PUT'] },
-            (res) => log(res.copy_start === 1 ? `Copying started for ${client.loginid}` : `Copy start failed: ${res.error?.message}`)
-        );
-    });
-}
-
+// 5. Keep UI updates from original working version
 function updateMasterDisplay() {
     const container = document.getElementById('masterAccounts');
     if (!container) return;
+    
     container.innerHTML = masterAccounts.map(acc => `
         <div class="account-item">
-            <strong>${acc.loginid}</strong> - ${acc.currency} ${acc.balance}
-            <button onclick="enableCopiers('${acc.loginid}')" ${acc.allowCopiers ? 'disabled' : ''}>
-                ${acc.allowCopiers ? 'Copiers Enabled' : 'Enable Copiers'}
-            </button>
+            <div class="account-header">
+                <div>
+                    <strong>${acc.loginid}</strong>
+                    <div>${acc.fullname} - ${acc.currency} ${acc.balance}</div>
+                </div>
+                <button class="allow-copiers-btn ${acc.allowCopiers ? 'disabled' : ''}" 
+                        onclick="enableCopiers('${acc.loginid}')"
+                        ${acc.allowCopiers ? 'disabled' : ''}>
+                    ${acc.allowCopiers ? 'Copiers Enabled' : 'Enable Copiers'}
+                </button>
+            </div>
+            <div class="account-details">
+                Type: ${acc.is_virtual ? 'Virtual' : 'Real'} | 
+                Company: ${acc.landing_company_name}
+            </div>
         </div>
     `).join('');
 }
 
+// 6. Maintain working client management from original
 function updateClientDisplay() {
     const container = document.getElementById('clientList');
     if (!container) return;
+    
     container.innerHTML = clients.map(client => `
         <div class="client-item">
-            <strong>${client.loginid}</strong> - ${client.currency} ${client.balance}
+            <div>
+                <strong>${client.loginid}</strong>
+                <div>${client.fullname}</div>
+                <div>Balance: ${client.currency} ${client.balance}</div>
+                <div>Type: ${client.is_virtual ? 'Virtual' : 'Real'}</div>
+            </div>
             <div class="token-display">${client.token.slice(0, 6)}...${client.token.slice(-4)}</div>
         </div>
     `).join('');
 }
 
-function loadPersistedData() {
-    masterAccounts = JSON.parse(localStorage.getItem('masterAccounts')) || [];
-    clients = JSON.parse(localStorage.getItem('clients')) || [];
-    updateMasterDisplay();
-    updateClientDisplay();
-}
-
+// 7. Initialize with proper sequencing
 document.addEventListener('DOMContentLoaded', () => {
-    loadPersistedData();
     initWebSocket();
     document.getElementById('clientToken')?.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') addClient();
