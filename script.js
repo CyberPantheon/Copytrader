@@ -2,6 +2,7 @@ const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
 let masterAccounts = [];
 let clients = JSON.parse(localStorage.getItem('clients') || '[]');
+let currentCallback = null;
 
 // Core initialization flow
 function initWebSocket() {
@@ -19,7 +20,12 @@ function initWebSocket() {
             try {
                 const response = JSON.parse(msg.data);
                 log('Raw API response:', response);
-                handleAPIResponse(response);
+                if (currentCallback) {
+                    currentCallback(response);
+                    currentCallback = null;
+                } else {
+                    handleAPIResponse(response);
+                }
             } catch (error) {
                 log('Message handling error:', error);
             }
@@ -35,7 +41,7 @@ function initWebSocket() {
     }
 }
 
-// Define the missing log function
+// Define the log function
 function log(...args) {
     const logContainer = document.getElementById('logContainer');
     if (logContainer) {
@@ -46,15 +52,11 @@ function log(...args) {
     console.log(...args);
 }
 
-// Define the missing sendRequest function
+// Define the sendRequest function
 function sendRequest(command, params, callback) {
-    const request = JSON.stringify({ ...params, request: command });
+    const request = JSON.stringify({ ...params, [command]: 1 });
     ws.send(request);
-
-    ws.onmessage = (msg) => {
-        const response = JSON.parse(msg.data);
-        callback(response);
-    };
+    currentCallback = callback;
 }
 
 // OAuth parameter handling
@@ -122,10 +124,7 @@ function authenticateMaster(accounts) {
 
 // Account management
 function updateAccountDetails(account) {
-    sendRequest('get_settings', { 
-        get_settings: 1,
-        loginid: account.loginid
-    }, (res) => {
+    sendRequest('get_settings', { get_settings: 1, loginid: account.loginid }, (res) => {
         if (res.get_settings) {
             account.allowCopiers = res.get_settings.allow_copiers === 1;
             updateMasterDisplay();
