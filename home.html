@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Copy Trading Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background: #f4f4f4; }
+        .container { max-width: 800px; margin: auto; background: #fff; padding: 20px; box-shadow: 0px 0px 10px rgba(0, 0, 0, 0.1); }
+        h2, h3 { text-align: center; }
+        .btn { padding: 10px; margin: 10px; background: #28a745; color: white; border: none; cursor: pointer; }
+        .btn:hover { background: #218838; }
+        .btn-danger { background: #dc3545; }
+        .btn-danger:hover { background: #c82333; }
+        .logs { background: #eef; padding: 10px; margin-top: 20px; height: 150px; overflow-y: auto; font-size: 14px; }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h2>Copy Trading Dashboard</h2>
+
+        <button id="logoutBtn" class="btn btn-danger">Logout</button>
+
+        <div id="masterAccount">
+            <h3>Master Account</h3>
+            <p><strong>Name:</strong> <span id="masterName"></span></p>
+            <p><strong>Account ID:</strong> <span id="masterID"></span></p>
+            <p><strong>Balance:</strong> <span id="masterBalance"></span></p>
+            <button id="enableCopying" class="btn">Enable Copy Trading</button>
+        </div>
+
+        <div id="clientsSection">
+            <h3>Manage Clients</h3>
+            <input type="text" id="clientToken" placeholder="Enter Client API Token">
+            <button id="addClient" class="btn">Add Client</button>
+            <button id="authenticateClients" class="btn">Authenticate Clients</button>
+            <ul id="clientList"></ul>
+        </div>
+
+        <div id="copyControls">
+            <h3>Copy Trading</h3>
+            <button id="startCopy" class="btn">Start Copying</button>
+            <button id="stopCopy" class="btn btn-danger">Stop Copying</button>
+        </div>
+
+        <div class="logs" id="logs"><h4>Logs</h4></div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
