@@ -207,12 +207,7 @@ function logout() {
     window.location.href = 'index.html';
 }
 
-// // Initialization
-// document.addEventListener('DOMContentLoaded', () => {
-//     if (!localStorage.getItem('deriv_oauth_params')) {
-//         window.location.href = 'index.html';
-//         return;
-//     }
+document.addEventListener('DOMContentLoaded', () => {
     loadClients();
     initWebSocket();
 });
