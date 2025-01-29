@@ -43,7 +43,7 @@ function handleError(error) {
 
 function handleClose() {
     log('WebSocket connection closed');
-    setTimeout(initWebSocket, 5000); // Reconnect after 5 seconds
+    setTimeout(initWebSocket, 5000);
 }
 
 // Master Account Management
@@ -108,18 +108,43 @@ function enableCopiers(loginid) {
     const account = masterAccounts.find(a => a.loginid === loginid);
     if (!account) return;
 
-    sendRequest('set_settings', {
-        set_settings: 1,
-        loginid,
-        allow_copiers: 1
-    }, response => {
-        if (response.set_settings === 1) {
-            log(`Allow copiers enabled for ${loginid}`);
-            selectedAccount = loginid;
-        } else {
-            log(`Failed to enable copiers for ${loginid}`);
+    const settingsWS = new WebSocket(API_URL);
+    
+    settingsWS.onopen = () => {
+        log(`Authenticating ${loginid} for settings modification...`);
+        settingsWS.send(JSON.stringify({ authorize: account.token }));
+    };
+
+    settingsWS.onmessage = (event) => {
+        const response = JSON.parse(event.data);
+        if (response.authorize) {
+            log(`Authorized ${loginid} for settings change`);
+            settingsWS.send(JSON.stringify({
+                set_settings: 1,
+                allow_copiers: 1,
+                loginid: account.loginid
+            }));
         }
-    });
+        else if (response.set_settings) {
+            if (response.set_settings === 1) {
+                log(`Allow copiers enabled for ${loginid}`);
+                selectedAccount = loginid;
+                updateMasterDisplay();
+            } else {
+                log(`Failed to enable copiers for ${loginid}`);
+            }
+            settingsWS.close();
+        }
+        else if (response.error) {
+            log(`Error (${loginid}): ${response.error.message}`);
+            settingsWS.close();
+        }
+    };
+
+    settingsWS.onerror = (error) => {
+        log(`Settings WS Error (${loginid}): ${error.message}`);
+        settingsWS.close();
+    };
 }
 
 // Client Management
@@ -283,7 +308,6 @@ document.addEventListener('DOMContentLoaded', () => {
     updateMasterDisplay();
     updateClientDisplay();
     
-    // Close dropdown when clicking outside
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.accounts-dropdown')) {
             document.getElementById('dropdownContent').style.display = 'none';
