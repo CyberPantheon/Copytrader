@@ -1,9 +1,7 @@
-
 const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842'; // Use your full app ID
 let ws;
 let masterAccounts = [];
 let clients = [];
-let currentMasterToken = '';
 
 // Initialize WebSocket connection
 function initWebSocket() {
@@ -11,8 +9,7 @@ function initWebSocket() {
     
     ws.onopen = () => {
         log('Connected to Deriv API');
-        const params = new URLSearchParams(localStorage.getItem('deriv_oauth_params'));
-        handleOAuthParams(params);
+        processOAuthParams();
     };
 
     ws.onmessage = (msg) => {
@@ -23,9 +20,14 @@ function initWebSocket() {
     ws.onerror = (error) => {
         log(`WebSocket error: ${error.message}`);
     };
+
+    ws.onclose = () => {
+        log('WebSocket connection closed');
+    };
 }
 
-function handleOAuthParams(params) {
+function processOAuthParams() {
+    const params = new URLSearchParams(window.location.search);
     const accounts = [];
     let index = 1;
     
@@ -38,9 +40,13 @@ function handleOAuthParams(params) {
         index++;
     }
 
+    // Clear URL parameters after processing
+    window.history.replaceState({}, document.title, window.location.pathname);
+
     if (accounts.length > 0) {
-        currentMasterToken = accounts[0].token;
         authenticateMaster(accounts);
+    } else {
+        log('No master accounts found in URL parameters');
     }
 }
 
@@ -58,6 +64,8 @@ function authenticateMaster(accounts) {
                 updateMasterDisplay();
                 log(`Authenticated master account: ${masterAccount.loginid}`);
                 log(`User: ${masterAccount.fullname} | Balance: ${masterAccount.balance} ${masterAccount.currency}`);
+            } else {
+                log(`Authentication failed for account ${account.loginid}: ${res.error.message}`);
             }
         });
     });
@@ -81,7 +89,10 @@ function addClient() {
     const tokenInput = document.getElementById('clientToken');
     const token = tokenInput.value.trim();
     
-    if (!token) return;
+    if (!token) {
+        log('Please enter a client API token');
+        return;
+    }
 
     sendRequest('authorize', { authorize: token }, (res) => {
         if (res.error) {
@@ -91,7 +102,7 @@ function addClient() {
 
         const client = {
             ...res.authorize,
-            token
+            token: token
         };
 
         if (validateClient(client)) {
@@ -105,6 +116,11 @@ function addClient() {
 }
 
 function validateClient(client) {
+    if (masterAccounts.length === 0) {
+        log('Error: No master account authenticated');
+        return false;
+    }
+    
     const masterIsVirtual = masterAccounts[0].is_virtual;
     if (client.is_virtual !== masterIsVirtual) {
         log('Error: Client and master must be both real or both virtual');
@@ -114,6 +130,11 @@ function validateClient(client) {
 }
 
 function startCopying() {
+    if (clients.length === 0) {
+        log('No clients added to start copying');
+        return;
+    }
+
     clients.forEach(client => {
         sendRequest('copy_start', {
             copy_start: client.token,
@@ -166,6 +187,7 @@ function updateMasterDisplay() {
             <p>Name: ${acc.fullname}</p>
             <p>Balance: ${acc.currency} ${acc.balance}</p>
             <p>Landing Company: ${acc.landing_company_name}</p>
+            <p>Account Type: ${acc.is_virtual ? 'Virtual' : 'Real'}</p>
         </div>
     `).join('');
 }
@@ -178,6 +200,7 @@ function updateClientDisplay() {
                 <strong>${client.loginid}</strong>
                 <div>${client.fullname}</div>
                 <div>Balance: ${client.currency} ${client.balance}</div>
+                <div>Type: ${client.is_virtual ? 'Virtual' : 'Real'}</div>
             </div>
             <div>Token: ${client.token.slice(0, 6)}...${client.token.slice(-4)}</div>
         </div>
@@ -198,17 +221,26 @@ function saveClients() {
 
 function loadClients() {
     const stored = localStorage.getItem('clients');
-    if (stored) clients = JSON.parse(stored);
+    if (stored) {
+        try {
+            clients = JSON.parse(stored);
+            updateClientDisplay();
+        } catch (e) {
+            log('Error loading client data');
+        }
+    }
 }
 
 function logout() {
-    localStorage.removeItem('deriv_oauth_params');
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.close();
+    }
     localStorage.removeItem('clients');
     window.location.href = 'index.html';
 }
 
+// Initialization
 document.addEventListener('DOMContentLoaded', () => {
     loadClients();
     initWebSocket();
 });
-
