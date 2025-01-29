@@ -1,197 +1,203 @@
-document.addEventListener("DOMContentLoaded", () => {
-  const app_id = 66842; // Replace with your actual app_id
-  const redirect_url = "YOUR_REDIRECT_URL"; // Replace with your app's redirect URL
-  let websocket = null;
-  const clientTokens = JSON.parse(localStorage.getItem("clientTokens")) || [];
-  let masterToken = localStorage.getItem("masterToken") || null;
+// Constants
+const APP_ID = 66842;
+const REDIRECT_URL = "http://127.0.0.1:5500/index.html";
 
-  const masterTokenInput = document.getElementById("masterToken");
-  const clientTokenInput = document.getElementById("clientToken");
-  const logs = document.getElementById("logs");
-  const addClientButton = document.getElementById("addClient");
-  const startCopying = document.getElementById("startCopying");
-  const stopCopying = document.getElementById("stopCopying");
-  const masterOAuthLogin = document.getElementById("masterOAuthLogin");
-  const masterList = document.getElementById("masterList");
-  const clientList = document.getElementById("clientList");
+// Elements
+const loginBtn = document.getElementById("loginBtn");
+const logoutBtn = document.getElementById("logoutBtn");
+const masterAccountDiv = document.getElementById("masterAccount");
+const clientsSection = document.getElementById("clientsSection");
+const copyControls = document.getElementById("copyControls");
+const logsDiv = document.getElementById("logs");
 
-  /** Utility Functions */
-  function logMessage(message, type = "info") {
-    const p = document.createElement("p");
-    p.textContent = `${new Date().toLocaleTimeString()} - ${message}`;
+const masterNameEl = document.getElementById("masterName");
+const masterIDEl = document.getElementById("masterID");
+const masterBalanceEl = document.getElementById("masterBalance");
+const enableCopyingBtn = document.getElementById("enableCopying");
 
-    if (type === "success") p.style.color = "green";
-    else if (type === "error") p.style.color = "red";
-    else p.style.color = "blue";
+const clientTokenInput = document.getElementById("clientToken");
+const addClientBtn = document.getElementById("addClient");
+const authenticateClientsBtn = document.getElementById("authenticateClients");
+const clientList = document.getElementById("clientList");
 
-    logs.appendChild(p);
-    logs.scrollTop = logs.scrollHeight;
-    console.log(`${type.toUpperCase()}: ${message}`);
-  }
+const startCopyBtn = document.getElementById("startCopy");
+const stopCopyBtn = document.getElementById("stopCopy");
 
-  function saveMasterToken(token) {
-    localStorage.setItem("masterToken", token);
-  }
+// Variables
+let masterAccount = null;
+let clientAccounts = JSON.parse(localStorage.getItem("clients")) || [];
 
-  function saveClientTokens() {
-    localStorage.setItem("clientTokens", JSON.stringify(clientTokens));
-  }
+// Utility Function: Append to Logs
+function logMessage(message) {
+    const logEntry = document.createElement("p");
+    logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    logsDiv.appendChild(logEntry);
+    logsDiv.scrollTop = logsDiv.scrollHeight;
+}
 
-  function renderMasterToken() {
-    masterList.innerHTML = "";
-
-    if (masterToken) {
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <span>${masterToken}</span>
-        <button class="btn-delete">Delete</button>
-      `;
-      masterList.appendChild(li);
-
-      li.querySelector(".btn-delete").addEventListener("click", () => {
-        masterToken = null;
-        saveMasterToken(null);
-        renderMasterToken();
-        logMessage("Master token removed.", "info");
-      });
-    }
-  }
-
-  function renderClientTokens() {
-    clientList.innerHTML = "";
-
-    clientTokens.forEach((token, index) => {
-      const li = document.createElement("li");
-      li.innerHTML = `
-        <span>${token}</span>
-        <button class="btn-delete" data-index="${index}">Delete</button>
-      `;
-      clientList.appendChild(li);
-
-      li.querySelector(".btn-delete").addEventListener("click", () => {
-        clientTokens.splice(index, 1);
-        saveClientTokens();
-        renderClientTokens();
-        logMessage("Client token removed.", "info");
-      });
-    });
-  }
-
-  /** OAuth Login for Master */
-  masterOAuthLogin.addEventListener("click", () => {
-    const oauthUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${app_id}&redirect_uri=${encodeURIComponent(redirect_url)}`;
+// Step 1: OAuth Login
+loginBtn.addEventListener("click", () => {
+    const oauthUrl = `https://oauth.deriv.com/oauth2/authorize?app_id=${APP_ID}`;
     window.location.href = oauthUrl;
-  });
+});
 
-  // Handle OAuth Redirection
-  function handleOAuthRedirect() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get("token1"); // Extract the first token from the URL (assuming it's for the master account)
+// Step 2: Extract Token from URL
+function extractTokens() {
+    const params = new URLSearchParams(window.location.search);
+    let userAccounts = [];
 
+    params.forEach((value, key) => {
+        if (key.startsWith("acct")) {
+            const index = key.replace("acct", "");
+            userAccounts.push({
+                account: value,
+                token: params.get(`token${index}`),
+                currency: params.get(`cur${index}`)
+            });
+        }
+    });
+
+    if (userAccounts.length > 0) {
+        authorizeUser(userAccounts);
+    }
+}
+
+// Step 3: Authorize User
+async function authorizeUser(accounts) {
+    masterAccount = accounts[0]; // First account as Master
+    const response = await fetch("wss://ws.deriv.com/websockets/v3", {
+        method: "POST",
+        body: JSON.stringify({ authorize: masterAccount.token })
+    });
+
+    const data = await response.json();
+
+    if (data.authorize) {
+        masterNameEl.textContent = data.authorize.fullname;
+        masterIDEl.textContent = data.authorize.loginid;
+        masterBalanceEl.textContent = data.authorize.balance;
+        masterAccountDiv.style.display = "block";
+        clientsSection.style.display = "block";
+        copyControls.style.display = "block";
+        loginBtn.style.display = "none";
+        logoutBtn.style.display = "inline-block";
+
+        logMessage("Master account authenticated.");
+    } else {
+        logMessage("Error authenticating master.");
+    }
+}
+
+// Step 4: Enable Copy Trading
+enableCopyingBtn.addEventListener("click", async () => {
+    const response = await fetch("wss://ws.deriv.com/websockets/v3", {
+        method: "POST",
+        body: JSON.stringify({
+            set_settings: 1,
+            allow_copiers: 1,
+            loginid: masterAccount.account
+        })
+    });
+
+    const data = await response.json();
+    if (data.set_settings === 1) {
+        logMessage("Copy Trading Enabled for Master.");
+    } else {
+        logMessage("Failed to enable Copy Trading.");
+    }
+});
+
+// Step 5: Add Clients
+addClientBtn.addEventListener("click", () => {
+    const token = clientTokenInput.value.trim();
     if (token) {
-      masterToken = token;
-      saveMasterToken(token);
-      renderMasterToken();
-      logMessage("Master logged in successfully via OAuth.", "success");
+        clientAccounts.push({ token });
+        localStorage.setItem("clients", JSON.stringify(clientAccounts));
+        updateClientList();
+        logMessage("Client added.");
     }
-  }
+});
 
-  /** Start Copying Trades */
-  function startCopyTrading() {
-    if (!masterToken) {
-      logMessage("No master token provided.", "error");
-      return;
-    }
-
-    if (clientTokens.length === 0) {
-      logMessage("No client tokens provided.", "error");
-      return;
-    }
-
-    websocket = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${app_id}`);
-
-    websocket.onopen = () => {
-      logMessage("WebSocket connection established for trade copying.", "info");
-      websocket.send(JSON.stringify({ authorize: masterToken }));
-    };
-
-    websocket.onmessage = (event) => {
-      const response = JSON.parse(event.data);
-      logMessage(`Received: ${JSON.stringify(response)}`, "info");
-
-      if (response.authorize) {
-        logMessage(
-          `Master Authenticated: ${response.authorize.loginid}, Balance: ${response.authorize.balance} ${response.authorize.currency}`,
-          "success"
-        );
-
-        // Copy trades for each client
-        clientTokens.forEach((clientToken) => {
-          websocket.send(
-            JSON.stringify({
-              authorize: clientToken,
-            })
-          );
+// Step 6: Authenticate Clients
+authenticateClientsBtn.addEventListener("click", async () => {
+    for (let client of clientAccounts) {
+        const response = await fetch("wss://ws.deriv.com/websockets/v3", {
+            method: "POST",
+            body: JSON.stringify({ authorize: client.token })
         });
 
-        // Start copying
-        websocket.send(
-          JSON.stringify({
-            copy_start: masterToken,
-          })
-        );
-      }
+        const data = await response.json();
 
-      if (response.error) {
-        logMessage(`Error: ${response.error.message}`, "error");
-      }
-    };
-
-    websocket.onerror = (error) => {
-      logMessage(`WebSocket Error: ${error.message}`, "error");
-    };
-
-    websocket.onclose = () => {
-      logMessage("WebSocket connection closed.", "info");
-    };
-  }
-
-  /** Stop Copying Trades */
-  function stopCopyTrading() {
-    if (!masterToken) {
-      logMessage("No master token provided.", "error");
-      return;
+        if (data.authorize) {
+            client.loginid = data.authorize.loginid;
+            client.balance = data.authorize.balance;
+            updateClientList();
+            logMessage(`Client ${client.loginid} authenticated.`);
+        } else {
+            logMessage("Client authentication failed.");
+        }
     }
-
-    websocket.send(
-      JSON.stringify({
-        copy_stop: 1,
-      })
-    );
-    logMessage("Stopped copying trades.", "success");
-    websocket.close();
-    websocket = null;
-  }
-
-  /** Event Listeners */
-  startCopying.addEventListener("click", startCopyTrading);
-  stopCopying.addEventListener("click", stopCopyTrading);
-
-  addClientButton.addEventListener("click", () => {
-    const token = clientTokenInput.value.trim();
-    if (token && !clientTokens.includes(token)) {
-      clientTokens.push(token);
-      saveClientTokens();
-      renderClientTokens();
-      logMessage(`Client token added: ${token}`, "success");
-      clientTokenInput.value = "";
-    } else {
-      logMessage("Invalid or duplicate client token.", "error");
-    }
-  });
-
-  // Render Tokens on Load
-  renderMasterToken();
-  renderClientTokens();
-  handleOAuthRedirect(); // Handle OAuth redirection on page load
 });
+
+// Step 7: Update Client List
+function updateClientList() {
+    clientList.innerHTML = "";
+    clientAccounts.forEach(client => {
+        const li = document.createElement("li");
+        li.textContent = `Client ${client.loginid || "Unknown"} - Balance: ${client.balance || "N/A"}`;
+        clientList.appendChild(li);
+    });
+}
+
+// Step 8: Start Copying Trades
+startCopyBtn.addEventListener("click", async () => {
+    for (let client of clientAccounts) {
+        const response = await fetch("wss://ws.deriv.com/websockets/v3", {
+            method: "POST",
+            body: JSON.stringify({
+                copy_start: masterAccount.token,
+                loginid: client.loginid
+            })
+        });
+
+        const data = await response.json();
+        if (data.copy_start === 1) {
+            logMessage(`Copy Trading started for ${client.loginid}`);
+        } else {
+            logMessage("Failed to start copy trading.");
+        }
+    }
+});
+
+// Step 9: Stop Copying Trades
+stopCopyBtn.addEventListener("click", async () => {
+    for (let client of clientAccounts) {
+        const response = await fetch("wss://ws.deriv.com/websockets/v3", {
+            method: "POST",
+            body: JSON.stringify({
+                copy_stop: masterAccount.token,
+                loginid: client.loginid
+            })
+        });
+
+        const data = await response.json();
+        if (data.copy_stop === 1) {
+            logMessage(`Copy Trading stopped for ${client.loginid}`);
+        } else {
+            logMessage("Failed to stop copy trading.");
+        }
+    }
+});
+
+// Step 10: Logout
+logoutBtn.addEventListener("click", () => {
+    masterAccount = null;
+    clientAccounts = [];
+    localStorage.removeItem("clients");
+    window.location.href = REDIRECT_URL;
+    logMessage("Logged out.");
+});
+
+// Extract tokens on page load
+extractTokens();
+updateClientList();
