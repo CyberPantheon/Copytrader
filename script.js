@@ -194,10 +194,10 @@ function logout() {
 }
 
 // Initialization
-document.addEventListener('DOMContentLoaded', () => {
-    if (!localStorage.getItem('deriv_oauth_params')) {
-        window.location.href = 'index.html';
-    }
+// document.addEventListener('DOMContentLoaded', () => {
+//     if (!localStorage.getItem('deriv_oauth_params')) {
+//         window.location.href = 'index.html';
+//     }
     loadClients();
     initWebSocket();
 });
