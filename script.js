@@ -49,7 +49,6 @@ function processOAuthParams() {
         log('No master accounts found in URL parameters');
     }
 }
-
 function authenticateMaster(accounts) {
     accounts.forEach(account => {
         sendRequest('authorize', { authorize: account.token }, (res) => {
@@ -57,26 +56,48 @@ function authenticateMaster(accounts) {
                 const masterAccount = {
                     ...res.authorize,
                     token: account.token,
-                    loginid: account.loginid
+                    loginid: account.loginid,
+                    allowCopiers: false
                 };
-                masterAccounts.push(masterAccount);
-                enableCopiers(masterAccount.loginid);
+                
+                // Update existing account or add new
+                const existingIndex = masterAccounts.findIndex(a => a.loginid === account.loginid);
+                if (existingIndex >= 0) {
+                    masterAccounts[existingIndex] = masterAccount;
+                } else {
+                    masterAccounts.push(masterAccount);
+                }
+                
+                updateAccountDetails(masterAccount);
+                saveMasterAccounts();
                 updateMasterDisplay();
-                log(`Authenticated master account: ${masterAccount.loginid}`);
-                log(`User: ${masterAccount.fullname} | Balance: ${masterAccount.balance} ${masterAccount.currency}`);
-            } else {
-                log(`Authentication failed for account ${account.loginid}: ${res.error.message}`);
             }
         });
     });
 }
+function updateAccountDetails(account) {
+    sendRequest('get_settings', { 
+        get_settings: 1,
+        loginid: account.loginid
+    }, (res) => {
+        if (res.get_settings) {
+            account.allowCopiers = res.get_settings.allow_copiers === 1;
+            updateMasterDisplay();
+        }
+    });
+}
 
 function enableCopiers(loginid) {
+    const account = masterAccounts.find(a => a.loginid === loginid);
+    if (!account) return;
+
     sendRequest('set_settings', {
         set_settings: 1,
         loginid,
         allow_copiers: 1
     }, (res) => {
+        account.allowCopiers = res.set_settings === 1;
+        updateMasterDisplay();
         if (res.set_settings === 1) {
             log(`Allow copiers enabled for ${loginid}`);
         } else {
@@ -84,7 +105,6 @@ function enableCopiers(loginid) {
         }
     });
 }
-
 function addClient() {
     const tokenInput = document.getElementById('clientToken');
     const token = tokenInput.value.trim();
