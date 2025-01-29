@@ -1,6 +1,6 @@
 // Constants
 const APP_ID = 66842;
-const REDIRECT_URL = "https://cyberpantheon.github.io/Copytrader/";
+const REDIRECT_URL = "";
 
 // Elements
 const loginBtn = document.getElementById("loginBtn");
@@ -22,6 +22,12 @@ const clientList = document.getElementById("clientList");
 
 const startCopyBtn = document.getElementById("startCopy");
 const stopCopyBtn = document.getElementById("stopCopy");
+
+const masterAccount = JSON.parse(localStorage.getItem("masterAccount"));
+const clientAccounts = JSON.parse(localStorage.getItem("clients")) || [];
+
+if (!masterAccount && window.location.pathname.includes("home.html")) {
+    window.location.href = "index.html";
 
 // Variables
 let masterAccount = null;
