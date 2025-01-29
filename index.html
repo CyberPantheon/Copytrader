@@ -71,12 +71,12 @@
             window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=${appId}`;
         }
 
-        // // Check for OAuth redirect with tokens
-        // const params = new URLSearchParams(window.location.search);
-        // if (params.toString()) {
-        //     localStorage.setItem('deriv_oauth_params', params.toString());
-        //     window.location.href = 'home.html';
-        // }
+        // Check for OAuth redirect with tokens
+        const params = new URLSearchParams(window.location.search);
+        if (params.toString()) {
+            localStorage.setItem('deriv_oauth_params', params.toString());
+            window.location.href = 'home.html';
+        }
     </script>
 </body>
 </html>
