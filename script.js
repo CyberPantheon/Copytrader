@@ -1,3 +1,4 @@
+document.addEventListener("DOMContentLoaded", () => {
 const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842'; // Use your full app ID
 let ws;
 let masterAccounts = [];
@@ -215,3 +216,4 @@ function logout() {
     loadClients();
     initWebSocket();
 });
+}
