@@ -1,8 +1,7 @@
 const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
 let masterAccounts = [];
-let clients = JSON.parse(localStorage.getItem('clients')) || [];
-let currentCallback = null;
+let clients = JSON.parse(localStorage.getItem('clients') || '[]');
 
 // Core initialization flow
 function initWebSocket() {
@@ -20,12 +19,7 @@ function initWebSocket() {
             try {
                 const response = JSON.parse(msg.data);
                 log('Raw API response:', response);
-                if (currentCallback) {
-                    currentCallback(response);
-                    currentCallback = null;
-                } else {
-                    handleAPIResponse(response);
-                }
+                handleAPIResponse(response);
             } catch (error) {
                 log('Message handling error:', error);
             }
@@ -41,7 +35,7 @@ function initWebSocket() {
     }
 }
 
-// Define the log function
+// Define the missing log function
 function log(...args) {
     const logContainer = document.getElementById('logContainer');
     if (logContainer) {
@@ -52,11 +46,15 @@ function log(...args) {
     console.log(...args);
 }
 
-// Define the sendRequest function
+// Define the missing sendRequest function
 function sendRequest(command, params, callback) {
-    const request = JSON.stringify({ ...params, [command]: 1 });
+    const request = JSON.stringify({ ...params, request: command });
     ws.send(request);
-    currentCallback = callback;
+
+    ws.onmessage = (msg) => {
+        const response = JSON.parse(msg.data);
+        callback(response);
+    };
 }
 
 // OAuth parameter handling
