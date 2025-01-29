@@ -1,4 +1,4 @@
-const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
+const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842'; // Use your full app ID
 let ws;
 let masterAccounts = [];
 let clients = [];
@@ -47,12 +47,16 @@ function authenticateMaster(accounts) {
     accounts.forEach(account => {
         sendRequest('authorize', { authorize: account.token }, (res) => {
             if (!res.error) {
-                masterAccounts.push({
+                const masterAccount = {
                     ...res.authorize,
-                    token: account.token
-                });
-                enableCopiers(res.authorize.loginid);
+                    token: account.token,
+                    loginid: account.loginid
+                };
+                masterAccounts.push(masterAccount);
+                enableCopiers(masterAccount.loginid);
                 updateMasterDisplay();
+                log(`Authenticated master account: ${masterAccount.loginid}`);
+                log(`User: ${masterAccount.fullname} | Balance: ${masterAccount.balance} ${masterAccount.currency}`);
             }
         });
     });
@@ -66,6 +70,8 @@ function enableCopiers(loginid) {
     }, (res) => {
         if (res.set_settings === 1) {
             log(`Allow copiers enabled for ${loginid}`);
+        } else {
+            log(`Failed to enable allow copiers for ${loginid}`);
         }
     });
 }
@@ -115,6 +121,8 @@ function startCopying() {
         }, (res) => {
             if (res.copy_start === 1) {
                 log(`Copying started for ${client.loginid}`);
+            } else {
+                log(`Failed to start copying for ${client.loginid}`);
             }
         });
     });
@@ -127,6 +135,8 @@ function stopCopying() {
         }, (res) => {
             if (res.copy_stop === 1) {
                 log(`Copying stopped for ${client.loginid}`);
+            } else {
+                log(`Failed to stop copying for ${client.loginid}`);
             }
         });
     });
@@ -152,8 +162,9 @@ function updateMasterDisplay() {
     container.innerHTML = masterAccounts.map(acc => `
         <div class="account-card">
             <h4>${acc.loginid}</h4>
-            <p>${acc.currency} ${acc.balance}</p>
-            <p>${acc.landing_company_name}</p>
+            <p>Name: ${acc.fullname}</p>
+            <p>Balance: ${acc.currency} ${acc.balance}</p>
+            <p>Landing Company: ${acc.landing_company_name}</p>
         </div>
     `).join('');
 }
@@ -164,16 +175,17 @@ function updateClientDisplay() {
         <div class="client-item">
             <div>
                 <strong>${client.loginid}</strong>
-                <div>${client.currency} ${client.balance}</div>
+                <div>${client.fullname}</div>
+                <div>Balance: ${client.currency} ${client.balance}</div>
             </div>
-            <div>${client.token.slice(0, 6)}...${client.token.slice(-4)}</div>
+            <div>Token: ${client.token.slice(0, 6)}...${client.token.slice(-4)}</div>
         </div>
     `).join('');
 }
 
 function log(message) {
     const logContainer = document.getElementById('logContainer');
-    const entry = document.createElement('p');
+    const entry = document.createElement('div');
     entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
     logContainer.appendChild(entry);
     logContainer.scrollTop = logContainer.scrollHeight;
@@ -190,14 +202,16 @@ function loadClients() {
 
 function logout() {
     localStorage.removeItem('deriv_oauth_params');
+    localStorage.removeItem('clients');
     window.location.href = 'index.html';
 }
 
 // Initialization
-// document.addEventListener('DOMContentLoaded', () => {
-//     if (!localStorage.getItem('deriv_oauth_params')) {
-//         window.location.href = 'index.html';
-//     }
+document.addEventListener('DOMContentLoaded', () => {
+    if (!localStorage.getItem('deriv_oauth_params')) {
+        window.location.href = 'index.html';
+        return;
+    }
     loadClients();
     initWebSocket();
 });
