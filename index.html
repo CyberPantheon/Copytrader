@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Deriv Copy Trading</title>
     <style>
-        /* Existing styles remain the same */
+        /* Keep existing styles */
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background: linear-gradient(135deg, #1a1a1a 0%, #2a2a2a 100%);
@@ -61,24 +61,15 @@
 </head>
 <body>
     <div class="container">
-        <h1>Deriv Copy Trading V2</h1>
+        <h1>Deriv Copy Trading</h1>
         <p>Automatically replicate trades from experienced traders. Connect your Deriv account securely and start copy trading in minutes.</p>
         <button class="login-btn" onclick="initOAuth()">Login with Deriv</button>
     </div>
 
     <script>
         function initOAuth() {
-            const appId = '66842'; // Replace with your full app ID
+            const appId = '66842'; // Your full app ID
             window.location.href = `https://oauth.deriv.com/oauth2/authorize?app_id=${appId}`;
-        }
-
-        // Handle OAuth redirect
-        const params = new URLSearchParams(window.location.search);
-        if (params.has('acct1')) {
-            localStorage.setItem('deriv_oauth_params', params.toString());
-            // Clear URL parameters after storing
-            window.history.replaceState({}, document.title, window.location.pathname);
-            window.location.href = 'home.html';
         }
     </script>
 </body>
