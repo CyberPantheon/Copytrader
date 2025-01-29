@@ -1,4 +1,4 @@
-const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=YOUR_APP_ID';
+const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
 let masterAccounts = [];
 let clients = [];
