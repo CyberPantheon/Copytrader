@@ -61,12 +61,7 @@ function processOAuthParams() {
     }
 
     window.history.replaceState({}, document.title, window.location.pathname);
-
-    if (accounts.length > 0) {
-        authenticateMasters(accounts);
-    } else {
-        log('No master accounts found', 'warning');
-    }
+    authenticateMasters(accounts);
 }
 
 function authenticateMasters(accounts) {
@@ -77,7 +72,8 @@ function authenticateMasters(accounts) {
                     ...response.authorize,
                     token: account.token,
                     loginid: account.loginid,
-                    allow_copiers: false // Initialize allow_copiers status
+                    allow_copiers: false,
+                    account_type: 'peer_to_peer'
                 };
                 
                 if (!masterAccounts.some(a => a.loginid === master.loginid)) {
@@ -95,15 +91,15 @@ function reauthenticateMasters() {
     masterAccounts.forEach(account => {
         sendRequest('authorize', { authorize: account.token }, response => {
             if (response.error) {
-                log(`Reauthentication failed for ${account.loginid}`, 'error');
+                log(`Reauth failed for ${account.loginid}`, 'error');
                 masterAccounts = masterAccounts.filter(a => a.loginid !== account.loginid);
                 saveMasters();
                 updateMasterDisplay();
             } else {
-                // Update allow_copiers status from API response
                 const updatedMaster = {
                     ...account,
-                    allow_copiers: response.authorize?.allow_copiers === 1
+                    allow_copiers: response.authorize?.allow_copiers === 1,
+                    balance: response.authorize.balance
                 };
                 masterAccounts = masterAccounts.map(a => 
                     a.loginid === updatedMaster.loginid ? updatedMaster : a
@@ -122,7 +118,7 @@ function enableCopiers(loginid) {
     const settingsWS = new WebSocket(API_URL);
     
     settingsWS.onopen = () => {
-        log(`Initializing settings for ${loginid}...`, 'info');
+        log(`Configuring ${loginid}...`, 'info');
         settingsWS.send(JSON.stringify({ 
             authorize: account.token,
             req_id: Date.now()
@@ -132,11 +128,12 @@ function enableCopiers(loginid) {
     settingsWS.onmessage = (event) => {
         const response = JSON.parse(event.data);
         if (response.authorize) {
-            log(`Authorized ${loginid} for settings`, 'success');
             settingsWS.send(JSON.stringify({
                 set_settings: 1,
                 allow_copiers: 1,
                 loginid: account.loginid,
+                account_opening_reason: "Peer-to-peer exchange",
+                trading_hub: 1,
                 req_id: Date.now()
             }));
         }
@@ -156,15 +153,6 @@ function enableCopiers(loginid) {
             }
             settingsWS.close();
         }
-        else if (response.error) {
-            log(`Settings error: ${response.error.message}`, 'error');
-            settingsWS.close();
-        }
-    };
-
-    settingsWS.onerror = (error) => {
-        log(`Settings connection error: ${error.message}`, 'error');
-        settingsWS.close();
     };
 }
 
@@ -174,11 +162,10 @@ window.addClient = function() {
     const token = tokenInput.value.trim();
     
     if (!token) {
-        log('Please enter a client token', 'warning');
+        log('Enter client token', 'warning');
         return;
     }
 
-    // Verify client token validity
     sendRequest('authorize', { authorize: token }, response => {
         if (response.error) {
             log(`Client error: ${response.error.message}`, 'error');
@@ -188,7 +175,7 @@ window.addClient = function() {
         const client = {
             ...response.authorize,
             token: token,
-            last_verified: Date.now()
+            account_type: 'peer_to_peer'
         };
 
         if (validateClient(client)) {
@@ -203,98 +190,81 @@ window.addClient = function() {
 }
 
 function validateClient(client) {
-    if (!selectedAccount) {
-        log('Select a master account first', 'error');
+    const master = masterAccounts.find(a => a.loginid === selectedAccount);
+    
+    if (!master) {
+        log('Select master account first', 'error');
         return false;
     }
     
-    const master = masterAccounts.find(a => a.loginid === selectedAccount);
-    if (!master) {
-        log('Master account not found', 'error');
-        return false;
-    }
+    const validations = [
+        {
+            check: () => client.is_virtual !== master.is_virtual,
+            message: 'Account types must match (real/virtual)'
+        },
+        {
+            check: () => !client.scopes?.includes('trading_information'),
+            message: 'Client missing trading_information scope'
+        },
+        {
+            check: () => client.currency !== master.currency,
+            message: 'Currency must match master account'
+        },
+        {
+            check: () => !master.allow_copiers,
+            message: 'Enable copiers on master first'
+        }
+    ];
 
-    // Validate account type match
-    if (client.is_virtual !== master.is_virtual) {
-        log('Account types must match (real/virtual)', 'error');
-        return false;
+    for (const validation of validations) {
+        if (validation.check()) {
+            log(validation.message, 'error');
+            return false;
+        }
     }
-
-    // Validate client permissions
-    if (!client.scopes?.includes('trade')) {
-        log('Client missing trade permissions', 'error');
-        return false;
-    }
-
-    // Validate copier status
-    if (!master.allow_copiers) {
-        log('Enable copiers on master account first', 'error');
-        return false;
-    }
-
     return true;
 }
 
 // Copy Trading Controls
 window.startCopying = function() {
     if (!selectedAccount) {
-        log('Select a master account first', 'error');
+        log('Select master account first', 'error');
         return;
     }
 
     const master = masterAccounts.find(a => a.loginid === selectedAccount);
-    if (!master?.allow_copiers) {
-        log('Enable copiers on master first', 'error');
-        return;
-    }
-
-    if (clients.length === 0) {
-        log('Add client accounts first', 'warning');
-        return;
-    }
-
+    
     clients.forEach(client => {
-        // Re-validate client before copying
-        sendRequest('authorize', { authorize: client.token }, response => {
-            if (response.error) {
-                log(`Client ${client.loginid} authorization failed: ${response.error.message}`, 'error');
-                return;
+        sendRequest('copy_start', {
+            copy_start: client.token,
+            account_type: "peer_to_peer",
+            trading_hub: 1
+        }, response => {
+            if (response.copy_start === 1) {
+                log(`Copying all trades to ${client.loginid}`, 'success');
+            } else {
+                log(`Copy failed: ${response.error?.message || 'Unknown error'}`, 'error');
             }
-
-            // Start copy trading with minimal parameters
-            sendRequest('copy_start', {
-                copy_start: client.token
-            }, response => {
-                if (response.copy_start === 1) {
-                    log(`Copying active for ${client.loginid}`, 'success');
-                } else {
-                    log(`Copy failed: ${response.error?.message || 'Unknown error'}`, 'error');
-                }
-            });
         });
     });
 };
 
 window.stopCopying = function() {
-    if (clients.length === 0) {
-        log('No clients to stop copying', 'warning');
-        return;
-    }
-
     clients.forEach(client => {
         sendRequest('copy_stop', {
             copy_stop: client.token
         }, response => {
             if (response.copy_stop === 1) {
-                log(`Copying stopped for ${client.loginid}`, 'success');
-            } else {
-                log(`Stop failed: ${response.error?.message || 'Unknown error'}`, 'error');
+                log(`Stopped copying to ${client.loginid}`, 'success');
             }
         });
     });
 }
 
-// UI Functions
+// UI and Utilities (keep previous implementations)
+// ... [Keep all UI and utility functions from previous version]
+// Include updateMasterDisplay, updateClientDisplay, 
+// log, saveMasters, saveClients, etc. as before
 function updateMasterDisplay() {
     const dropdownContent = document.getElementById('dropdownContent');
     dropdownContent.innerHTML = masterAccounts.map(acc => `
@@ -377,6 +347,13 @@ window.logout = function() {
     if (ws) ws.close();
     window.location.href = 'index.html';
 }
+
+
+
+
+
+
+
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
