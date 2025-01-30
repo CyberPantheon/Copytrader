@@ -260,11 +260,7 @@ window.stopCopying = function() {
         });
     });
 }
-
-// UI and Utilities (keep previous implementations)
-// ... [Keep all UI and utility functions from previous version]
-// Include updateMasterDisplay, updateClientDisplay, 
-// log, saveMasters, saveClients, etc. as before
+// UI Functions
 function updateMasterDisplay() {
     const dropdownContent = document.getElementById('dropdownContent');
     dropdownContent.innerHTML = masterAccounts.map(acc => `
@@ -348,13 +344,6 @@ window.logout = function() {
     window.location.href = 'index.html';
 }
 
-
-
-
-
-
-
-
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
     initWebSocket();
@@ -367,3 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+
+
+
