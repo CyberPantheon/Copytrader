@@ -61,7 +61,12 @@ function processOAuthParams() {
     }
 
     window.history.replaceState({}, document.title, window.location.pathname);
-    authenticateMasters(accounts);
+
+    if (accounts.length > 0) {
+        authenticateMasters(accounts);
+    } else {
+        log('No master accounts found', 'warning');
+    }
 }
 
 function authenticateMasters(accounts) {
@@ -73,7 +78,7 @@ function authenticateMasters(accounts) {
                     token: account.token,
                     loginid: account.loginid,
                     allow_copiers: false,
-                    account_type: 'peer_to_peer'
+                    currency: account.currency
                 };
                 
                 if (!masterAccounts.some(a => a.loginid === master.loginid)) {
@@ -91,7 +96,7 @@ function reauthenticateMasters() {
     masterAccounts.forEach(account => {
         sendRequest('authorize', { authorize: account.token }, response => {
             if (response.error) {
-                log(`Reauth failed for ${account.loginid}`, 'error');
+                log(`Reauthentication failed for ${account.loginid}`, 'error');
                 masterAccounts = masterAccounts.filter(a => a.loginid !== account.loginid);
                 saveMasters();
                 updateMasterDisplay();
@@ -99,7 +104,7 @@ function reauthenticateMasters() {
                 const updatedMaster = {
                     ...account,
                     allow_copiers: response.authorize?.allow_copiers === 1,
-                    balance: response.authorize.balance
+                    currency: response.authorize.currency
                 };
                 masterAccounts = masterAccounts.map(a => 
                     a.loginid === updatedMaster.loginid ? updatedMaster : a
@@ -118,7 +123,7 @@ function enableCopiers(loginid) {
     const settingsWS = new WebSocket(API_URL);
     
     settingsWS.onopen = () => {
-        log(`Configuring ${loginid}...`, 'info');
+        log(`Initializing settings for ${loginid}...`, 'info');
         settingsWS.send(JSON.stringify({ 
             authorize: account.token,
             req_id: Date.now()
@@ -128,6 +133,7 @@ function enableCopiers(loginid) {
     settingsWS.onmessage = (event) => {
         const response = JSON.parse(event.data);
         if (response.authorize) {
+            log(`Authorized ${loginid} for settings`, 'success');
             settingsWS.send(JSON.stringify({
                 set_settings: 1,
                 allow_copiers: 1,
@@ -153,6 +159,15 @@ function enableCopiers(loginid) {
             }
             settingsWS.close();
         }
+        else if (response.error) {
+            log(`Settings error: ${response.error.message}`, 'error');
+            settingsWS.close();
+        }
+    };
+
+    settingsWS.onerror = (error) => {
+        log(`Settings connection error: ${error.message}`, 'error');
+        settingsWS.close();
     };
 }
 
@@ -162,7 +177,7 @@ window.addClient = function() {
     const token = tokenInput.value.trim();
     
     if (!token) {
-        log('Enter client token', 'warning');
+        log('Please enter a client token', 'warning');
         return;
     }
 
@@ -175,7 +190,7 @@ window.addClient = function() {
         const client = {
             ...response.authorize,
             token: token,
-            account_type: 'peer_to_peer'
+            last_verified: Date.now()
         };
 
         if (validateClient(client)) {
@@ -190,76 +205,99 @@ window.addClient = function() {
 }
 
 function validateClient(client) {
-    const master = masterAccounts.find(a => a.loginid === selectedAccount);
-    
-    if (!master) {
-        log('Select master account first', 'error');
+    if (!selectedAccount) {
+        log('Select a master account first', 'error');
         return false;
     }
     
-    const validations = [
-        {
-            check: () => client.is_virtual !== master.is_virtual,
-            message: 'Account types must match (real/virtual)'
-        },
-        {
-            check: () => !client.scopes?.includes('trading_information'),
-            message: 'Client missing trading_information scope'
-        },
-        {
-            check: () => client.currency !== master.currency,
-            message: 'Currency must match master account'
-        },
-        {
-            check: () => !master.allow_copiers,
-            message: 'Enable copiers on master first'
-        }
-    ];
-
-    for (const validation of validations) {
-        if (validation.check()) {
-            log(validation.message, 'error');
-            return false;
-        }
+    const master = masterAccounts.find(a => a.loginid === selectedAccount);
+    if (!master) {
+        log('Master account not found', 'error');
+        return false;
     }
+
+    if (client.is_virtual !== master.is_virtual) {
+        log('Account types must match (real/virtual)', 'error');
+        return false;
+    }
+
+    if (client.currency !== master.currency) {
+        log(`Currency mismatch: Master (${master.currency}) vs Client (${client.currency})`, 'error');
+        return false;
+    }
+
+    if (!client.scopes?.includes('trade') || !client.scopes?.includes('trading_information')) {
+        log('Client missing required permissions', 'error');
+        return false;
+    }
+
+    if (!master.allow_copiers) {
+        log('Enable copiers on master account first', 'error');
+        return false;
+    }
+
     return true;
 }
 
 // Copy Trading Controls
 window.startCopying = function() {
     if (!selectedAccount) {
-        log('Select master account first', 'error');
+        log('Select a master account first', 'error');
         return;
     }
 
     const master = masterAccounts.find(a => a.loginid === selectedAccount);
-    
+    if (!master?.allow_copiers) {
+        log('Enable copiers on master first', 'error');
+        return;
+    }
+
+    if (clients.length === 0) {
+        log('Add client accounts first', 'warning');
+        return;
+    }
+
     clients.forEach(client => {
-        sendRequest('copy_start', {
-            copy_start: client.token,
-            account_type: "peer_to_peer",
-            trading_hub: 1
-        }, response => {
-            if (response.copy_start === 1) {
-                log(`Copying all trades to ${client.loginid}`, 'success');
-            } else {
-                log(`Copy failed: ${response.error?.message || 'Unknown error'}`, 'error');
+        sendRequest('authorize', { authorize: client.token }, response => {
+            if (response.error) {
+                log(`Client ${client.loginid} authorization failed: ${response.error.message}`, 'error');
+                return;
             }
+
+            sendRequest('copy_start', {
+                copy_start: client.token,
+                trading_hub: 1,
+                account_type: "peer_to_peer"
+            }, response => {
+                if (response.copy_start === 1) {
+                    log(`Copying all trades for ${client.loginid}`, 'success');
+                } else {
+                    log(`Copy failed: ${response.error?.message || 'Unknown error'}`, 'error');
+                }
+            });
         });
     });
 };
 
 window.stopCopying = function() {
+    if (clients.length === 0) {
+        log('No clients to stop copying', 'warning');
+        return;
+    }
+
     clients.forEach(client => {
         sendRequest('copy_stop', {
             copy_stop: client.token
         }, response => {
             if (response.copy_stop === 1) {
-                log(`Stopped copying to ${client.loginid}`, 'success');
+                log(`Copying stopped for ${client.loginid}`, 'success');
+            } else {
+                log(`Stop failed: ${response.error?.message || 'Unknown error'}`, 'error');
             }
         });
     });
 }
+
 // UI Functions
 function updateMasterDisplay() {
     const dropdownContent = document.getElementById('dropdownContent');
@@ -268,7 +306,7 @@ function updateMasterDisplay() {
             <div>
                 <strong>${acc.loginid}</strong>
                 <div>${acc.fullname} - ${acc.currency} ${acc.balance}</div>
-                <small>${acc.allow_copiers ? 'Copiers Enabled' : 'Copiers Disabled'}</small>
+                <small>${acc.allow_copiers ? '✅ Copiers Enabled' : '❌ Copiers Disabled'}</small>
             </div>
             <button class="btn btn-primary" onclick="enableCopiers('${acc.loginid}')">
                 ${acc.allow_copiers ? '✔ Active' : 'Enable'}
@@ -356,7 +394,3 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
-
-
-
-
