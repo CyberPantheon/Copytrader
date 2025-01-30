@@ -77,19 +77,29 @@ function authenticateMasters(accounts) {
                     ...response.authorize,
                     token: account.token,
                     loginid: account.loginid,
-                    allow_copiers: false,
-                    currency: account.currency
+                    allow_copiers: response.authorize.allow_copiers === 1,
+                    currency: account.currency,
+                    account_type: response.authorize.account_type
                 };
                 
                 if (!masterAccounts.some(a => a.loginid === master.loginid)) {
                     masterAccounts.push(master);
                     saveMasters();
                     updateMasterDisplay();
-                    log(`Authenticated: ${master.loginid}`, 'success');
+                    checkAccountConfiguration(master);
                 }
             }
         });
     });
+}
+
+function checkAccountConfiguration(account) {
+    if (account.account_type !== 'peer_to_peer') {
+        log(`Account ${account.loginid} needs peer_to_peer type. Create new account via Deriv dashboard.`, 'error');
+    }
+    if (!account.allow_copiers) {
+        log(`Account ${account.loginid} requires copiers enabled`, 'warning');
+    }
 }
 
 function reauthenticateMasters() {
@@ -103,7 +113,7 @@ function reauthenticateMasters() {
             } else {
                 const updatedMaster = {
                     ...account,
-                    allow_copiers: response.authorize?.allow_copiers === 1,
+                    allow_copiers: response.authorize.allow_copiers === 1,
                     currency: response.authorize.currency
                 };
                 masterAccounts = masterAccounts.map(a => 
@@ -138,8 +148,6 @@ function enableCopiers(loginid) {
                 set_settings: 1,
                 allow_copiers: 1,
                 loginid: account.loginid,
-                // account_opening_reason: "Peer-to-peer exchange",
-                // trading_hub: 1,
                 req_id: Date.now()
             }));
         }
@@ -160,7 +168,11 @@ function enableCopiers(loginid) {
             settingsWS.close();
         }
         else if (response.error) {
-            log(`Settings error: ${response.error.message}`, 'error');
+            if (response.error.code === 'InvalidAccount') {
+                log(`Account configuration error: Create new account via Deriv dashboard with 'Peer-to-peer exchange' purpose`, 'error');
+            } else {
+                log(`Settings error: ${response.error.message}`, 'error');
+            }
             settingsWS.close();
         }
     };
@@ -236,6 +248,11 @@ function validateClient(client) {
         return false;
     }
 
+    if (master.account_type !== 'peer_to_peer') {
+        log('Master account must be peer_to_peer type', 'error');
+        return false;
+    }
+
     return true;
 }
 
@@ -265,9 +282,7 @@ window.startCopying = function() {
             }
 
             sendRequest('copy_start', {
-                copy_start: client.token,
-                // trading_hub: 1,
-                // account_type: "peer_to_peer"
+                copy_start: client.token
             }, response => {
                 if (response.copy_start === 1) {
                     log(`Copying all trades for ${client.loginid}`, 'success');
@@ -278,6 +293,9 @@ window.startCopying = function() {
         });
     });
 };
+
+// Rest of the code remains the same as previous version
+// ... [Keep all other functions identical]
 
 window.stopCopying = function() {
     if (clients.length === 0) {
