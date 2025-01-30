@@ -7,7 +7,7 @@ let selectedAccount = null;
 // WebSocket Management
 function initWebSocket() {
     ws = new WebSocket(API_URL);
-    
+
     ws.onopen = () => {
         log('Connected to Deriv API', 'success');
         if (masterAccounts.length > 0) {
@@ -24,7 +24,7 @@ function initWebSocket() {
 
 function handleMessage(event) {
     const response = JSON.parse(event.data);
-    
+
     if (response.error) {
         log(`Error: ${response.error.message}`, 'error');
     } else if (response.authorize) {
@@ -49,7 +49,7 @@ function handleClose() {
 function processOAuthParams() {
     const params = new URLSearchParams(window.location.search);
     const accounts = [];
-    
+
     let index = 1;
     while (params.has(`acct${index}`)) {
         accounts.push({
@@ -80,7 +80,7 @@ function authenticateMasters(accounts) {
                     allow_copiers: false,
                     currency: account.currency
                 };
-                
+
                 if (!masterAccounts.some(a => a.loginid === master.loginid)) {
                     masterAccounts.push(master);
                     saveMasters();
@@ -106,7 +106,7 @@ function reauthenticateMasters() {
                     allow_copiers: response.authorize?.allow_copiers === 1,
                     currency: response.authorize.currency
                 };
-                masterAccounts = masterAccounts.map(a => 
+                masterAccounts = masterAccounts.map(a =>
                     a.loginid === updatedMaster.loginid ? updatedMaster : a
                 );
                 saveMasters();
@@ -120,62 +120,63 @@ function enableCopiers(loginid) {
     const account = masterAccounts.find(a => a.loginid === loginid);
     if (!account) return;
 
-    const settingsWS = new WebSocket(API_URL);
-    
-    settingsWS.onopen = () => {
-        log(`Initializing settings for ${loginid}...`, 'info');
-        settingsWS.send(JSON.stringify({ 
-            authorize: account.token,
-            req_id: Date.now()
-        }));
-    };
+    // Step 1: Check active copy trades
+    sendRequest('copytrading_list', { copytrading_list: 1 }, response => {
+        if (response.error) {
+            log(`Error checking active trades: ${response.error.message}`, 'error');
+            return;
+        }
 
-    settingsWS.onmessage = (event) => {
-        const response = JSON.parse(event.data);
-        if (response.authorize) {
-            log(`Authorized ${loginid} for settings`, 'success');
+        // Step 2: Stop all active trader relationships
+        const activeTrades = response.copytrading_list?.traders || [];
+        activeTrades.forEach(trader => {
+            sendRequest('copy_stop', { copy_stop: trader.token }, stopResponse => {
+                if (stopResponse.copy_stop === 1) {
+                    log(`Stopped copying from ${trader.loginid}`, 'success');
+                }
+            });
+        });
+
+        // Step 3: Proceed to enable copiers after stopping trades
+        const settingsWS = new WebSocket(API_URL);
+        settingsWS.onopen = () => {
             settingsWS.send(JSON.stringify({
-                set_settings: 1,
-                allow_copiers: 1,
-                loginid: account.loginid,
-                // account_opening_reason: "Peer-to-peer exchange",
-                // trading_hub: 1,
+                authorize: account.token,
                 req_id: Date.now()
             }));
-        }
-        else if (response.set_settings) {
-            if (response.set_settings === 1) {
+        };
+
+        settingsWS.onmessage = (event) => {
+            const response = JSON.parse(event.data);
+            if (response.authorize) {
+                settingsWS.send(JSON.stringify({
+                    set_settings: 1,
+                    allow_copiers: 1,
+                    loginid: account.loginid,
+                    req_id: Date.now()
+                }));
+            } else if (response.set_settings === 1) {
                 log(`Copiers enabled for ${loginid}`, 'success');
                 const updatedMaster = {
                     ...account,
                     allow_copiers: true
                 };
-                masterAccounts = masterAccounts.map(a => 
+                masterAccounts = masterAccounts.map(a =>
                     a.loginid === loginid ? updatedMaster : a
                 );
                 saveMasters();
                 updateMasterDisplay();
-                selectedAccount = loginid;
+                settingsWS.close();
             }
-            settingsWS.close();
-        }
-        else if (response.error) {
-            log(`Settings error: ${response.error.message}`, 'error');
-            settingsWS.close();
-        }
-    };
-
-    settingsWS.onerror = (error) => {
-        log(`Settings connection error: ${error.message}`, 'error');
-        settingsWS.close();
-    };
+        };
+    });
 }
 
 // Client Management
-window.addClient = function() {
+window.addClient = function () {
     const tokenInput = document.getElementById('clientToken');
     const token = tokenInput.value.trim();
-    
+
     if (!token) {
         log('Please enter a client token', 'warning');
         return;
@@ -209,7 +210,7 @@ function validateClient(client) {
         log('Select a master account first', 'error');
         return false;
     }
-    
+
     const master = masterAccounts.find(a => a.loginid === selectedAccount);
     if (!master) {
         log('Master account not found', 'error');
@@ -240,7 +241,7 @@ function validateClient(client) {
 }
 
 // Copy Trading Controls
-window.startCopying = function() {
+window.startCopying = function () {
     if (!selectedAccount) {
         log('Select a master account first', 'error');
         return;
@@ -266,11 +267,13 @@ window.startCopying = function() {
 
             sendRequest('copy_start', {
                 copy_start: client.token,
-                // trading_hub: 1,
-                // account_type: "peer_to_peer"
+                trade_types: ["*"], // Allow all trade types
+                asset_classes: ["*"], // Allow all asset classes
+                max_trade_stake: 10000, // Match master's max stake
+                min_trade_stake: 0.5 // Match master's min stake
             }, response => {
                 if (response.copy_start === 1) {
-                    log(`Copying all trades for ${client.loginid}`, 'success');
+                    log(`Copying ALL trades for ${client.loginid}`, 'success');
                 } else {
                     log(`Copy failed: ${response.error?.message || 'Unknown error'}`, 'error');
                 }
@@ -279,7 +282,7 @@ window.startCopying = function() {
     });
 };
 
-window.stopCopying = function() {
+window.stopCopying = function () {
     if (clients.length === 0) {
         log('No clients to stop copying', 'warning');
         return;
@@ -331,7 +334,7 @@ function updateClientDisplay() {
     `).join('');
 }
 
-window.toggleDropdown = function() {
+window.toggleDropdown = function () {
     const dropdown = document.getElementById('dropdownContent');
     dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
 }
@@ -340,9 +343,9 @@ window.toggleDropdown = function() {
 function sendRequest(type, data, callback) {
     const req_id = Date.now();
     const request = { ...data, req_id };
-    
+
     ws.send(JSON.stringify(request));
-    
+
     const listener = (event) => {
         const response = JSON.parse(event.data);
         if (response.req_id === req_id) {
@@ -350,7 +353,7 @@ function sendRequest(type, data, callback) {
             ws.removeEventListener('message', listener);
         }
     };
-    
+
     ws.addEventListener('message', listener);
 }
 
@@ -376,7 +379,12 @@ function saveClients() {
     localStorage.setItem('clients', JSON.stringify(clients));
 }
 
-window.logout = function() {
+window.logout = function () {
+    // Stop all active copy trades
+    clients.forEach(client => {
+        sendRequest('copy_stop', { copy_stop: client.token });
+    });
+
     localStorage.clear();
     if (ws) ws.close();
     window.location.href = 'index.html';
@@ -387,7 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initWebSocket();
     updateMasterDisplay();
     updateClientDisplay();
-    
+
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.accounts-dropdown')) {
             document.getElementById('dropdownContent').style.display = 'none';
