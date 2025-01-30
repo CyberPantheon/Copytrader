@@ -134,14 +134,14 @@ function enableCopiers(loginid) {
         if (response.authorize) {
             log(`Authorized ${loginid} for settings`, 'success');
 
-            // First, disable any existing trader role
+            // First, disable copy trading (trader role)
             settingsWS.send(JSON.stringify({
                 set_settings: 1,
-                is_copy_trader: 0, // Explicitly disable trader role
+                copy_trading: 0, // Correct parameter to disable trader role
                 req_id: Date.now()
             }));
 
-            // Then enable copiers
+            // Then enable copiers (master role)
             settingsWS.send(JSON.stringify({
                 set_settings: 1,
                 allow_copiers: 1,
