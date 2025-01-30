@@ -138,7 +138,7 @@ function enableCopiers(loginid) {
                 set_settings: 1,
                 allow_copiers: 1,
                 loginid: account.loginid,
-                account_opening_reason: "Peer-to-peer exchange",
+                // account_opening_reason: "Peer-to-peer exchange",
                 trading_hub: 1,
                 req_id: Date.now()
             }));
@@ -267,7 +267,7 @@ window.startCopying = function() {
             sendRequest('copy_start', {
                 copy_start: client.token,
                 trading_hub: 1,
-                account_type: "peer_to_peer"
+                // account_type: "peer_to_peer"
             }, response => {
                 if (response.copy_start === 1) {
                     log(`Copying all trades for ${client.loginid}`, 'success');
