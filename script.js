@@ -197,7 +197,7 @@ window.logout = async function() {
     }
     
     localStorage.clear();
-    window.location.href = '/login';
+    window.location.href = '/index.html';
 }
 
 // Utilities
