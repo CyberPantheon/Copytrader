@@ -2,180 +2,42 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Copy Trading Dashboard</title>
-    <style>
-        :root {
-            --primary-color: #00ffa5;
-            --background-dark: #1a1a1a;
-            --background-medium: #2a2a2a;
-            --text-light: #ffffff;
-            --text-muted: #cccccc;
-        }
-
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background-color: var(--background-dark);
-            color: var(--text-light);
-            margin: 0;
-            padding: 20px;
-        }
-
-        .container {
-            max-width: 1200px;
-            margin: 0 auto;
-        }
-
-        .header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 30px;
-        }
-
-        .btn {
-            padding: 8px 16px;
-            border: none;
-            border-radius: 4px;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-
-        .btn-primary {
-            background-color: var(--primary-color);
-            color: var(--background-dark);
-        }
-
-        .btn-danger {
-            background-color: #ff4757;
-            color: white;
-        }
-
-        .section {
-            background-color: var(--background-medium);
-            border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
-        }
-
-        .accounts-dropdown {
-            position: relative;
-            width: 100%;
-            margin-top: 15px;
-        }
-
-        .dropdown-header {
-            padding: 12px;
-            background: rgba(0, 0, 0, 0.3);
-            border: 1px solid var(--primary-color);
-            border-radius: 6px;
-            cursor: pointer;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .dropdown-content {
-            position: absolute;
-            width: 100%;
-            max-height: 300px;
-            overflow-y: auto;
-            background: var(--background-medium);
-            border: 1px solid var(--primary-color);
-            border-radius: 6px;
-            margin-top: 5px;
-            z-index: 1000;
-            display: none;
-        }
-
-        .account-item {
-            padding: 12px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .client-list {
-            margin-top: 15px;
-        }
-
-        .client-item {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 12px;
-            background: rgba(255, 255, 255, 0.05);
-            margin-bottom: 10px;
-            border-radius: 6px;
-        }
-
-        .log-container {
-            background-color: #000;
-            color: var(--primary-color);
-            padding: 15px;
-            border-radius: 6px;
-            height: 200px;
-            overflow-y: auto;
-            font-family: monospace;
-        }
-
-        .input-group {
-            display: flex;
-            gap: 10px;
-            margin-top: 15px;
-        }
-
-        input[type="text"] {
-            flex: 1;
-            padding: 10px;
-            background: rgba(255, 255, 255, 0.1);
-            border: 1px solid var(--primary-color);
-            border-radius: 6px;
-            color: var(--text-light);
-        }
-    </style>
-</head>
+    <title>Master Control Panel - Deriv Copy Trading</title>
+   </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h2>Copy Trading Dashboard v6 rethink</h2>
-            <button class="btn btn-danger" onclick="logout()">Logout</button>
+<!--     <div class="header">
+        <div class="accounts-dropdown" onclick="toggleDropdown()">
+            <span>🔽 Select Master Account</span>
+            <div class="dropdown-content" id="dropdownContent"></div>
         </div>
-
-        <div class="section">
-            <h3>Master Accounts</h3>
-            <div class="accounts-dropdown" id="masterAccountsDropdown">
-                <div class="dropdown-header" onclick="toggleDropdown()">
-                    <span>Select Master Account</span>
-                    <span>▼</span>
-                </div>
-                <div class="dropdown-content" id="dropdownContent"></div>
-            </div>
-        </div>
-
-        <div class="section">
-            <h3>Client Management</h3>
-            <div class="input-group">
-                <input type="text" id="clientToken" placeholder="Enter client API token">
-                <button class="btn btn-primary" onclick="addClient()">Add Client</button>
-            </div>
-            <div id="clientList" class="client-list"></div>
-        </div>
-
-        <div class="section">
-            <h3>Trading Controls</h3>
-            <div class="input-group">
-                <button class="btn btn-primary" onclick="startCopying()">Start Copying</button>
-                <button class="btn btn-danger" onclick="stopCopying()">Stop Copying</button>
-            </div>
-        </div>
-
-        <div class="section">
-            <h3>System Logs</h3>
-            <div id="logContainer" class="log-container"></div>
-        </div>
+        <button onclick="logout()" class="disable-btn">Logout</button>
+    </div> -->
+    <!-- Add this to the header section -->
+<div class="header">
+    <div>
+        <button onclick="window.location.href='client.html'" class="switch-btn">
+            👤 Switch to Client View
+        </button>
+        <div class="accounts-dropdown" onclick="toggleDropdown()">
+            <span>🔽 Select Master Account</span>
+        <div class="dropdown-content" id="dropdownContent"></div>
     </div>
+     <button onclick="logout()" class="disable-btn">Logout</button>
+</div>
+
+
+
+    <div class="controls">
+        <button onclick="refreshClients()">🔄 Refresh Clients</button>
+        <button onclick="toggleAllCopiers()" id="toggleAllBtn">Disable All Copiers</button>
+    </div>
+
+    <div class="client-list">
+        <h3>Active Copiers 🧑💻</h3>
+        <div id="clientList"></div>
+    </div>
+
+    <div class="log-container" id="logContainer"></div>
 
     <script src="script.js"></script>
 </body>
