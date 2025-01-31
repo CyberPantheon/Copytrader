@@ -1,6 +1,6 @@
 const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
 let ws;
-let accounts = JSON.parse(localStorage.getItem('accounts')) || [];
+let accounts = [];
 let selectedAccount = null;
 let masterToken = localStorage.getItem('masterToken') || null;
 let masterDetails = JSON.parse(localStorage.getItem('masterDetails')) || null;
@@ -12,11 +12,7 @@ function initWebSocket() {
 
     ws.onopen = () => {
         log('Connected to Deriv API', 'success');
-        if (isMasterPage()) {
-            authenticateAccounts();
-        } else {
-            if (masterToken) authenticateMaster(true);
-        }
+        processOAuthParams();
     };
 
     ws.onmessage = handleMessage;
@@ -26,7 +22,7 @@ function initWebSocket() {
 
 function handleMessage(event) {
     const response = JSON.parse(event.data);
-    
+
     if (response.error) {
         log(`Error: ${response.error.message}`, 'error');
     } else if (response.authorize) {
@@ -40,49 +36,86 @@ function handleMessage(event) {
     }
 }
 
-// Common Functions
-function isMasterPage() {
-    return window.location.pathname.endsWith('home.html');
+function handleError(error) {
+    log(`WebSocket Error: ${error.message}`, 'error');
 }
 
-function log(message, type = 'info') {
-    const logContainer = document.getElementById('logContainer');
-    const entry = document.createElement('div');
-    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
-    entry.style.color = {
-        error: '#ff4444',
-        success: '#00ffa5',
-        warning: '#ffdd57',
-        info: '#ffffff'
-    }[type];
-    logContainer.appendChild(entry);
-    logContainer.scrollTop = logContainer.scrollHeight;
+function handleClose() {
+    log('WebSocket connection closed', 'warning');
+    setTimeout(initWebSocket, 5000);
 }
 
-// Master Page Functions
-function authenticateAccounts() {
-    accounts.forEach(account => {
-        sendRequest('authorize', { 
+// OAuth and Authentication
+function processOAuthParams() {
+    const params = new URLSearchParams(window.location.search);
+    const newAccounts = [];
+
+    let index = 1;
+    while (params.has(`acct${index}`)) {
+        newAccounts.push({
+            loginid: params.get(`acct${index}`),
+            token: params.get(`token${index}`),
+            currency: params.get(`cur${index}`)
+        });
+        index++;
+    }
+
+    window.history.replaceState({}, document.title, window.location.pathname);
+
+    if (newAccounts.length > 0) {
+        authenticateAccounts(newAccounts);
+    } else {
+        log('No accounts found in OAuth parameters', 'warning');
+        loadStoredAccounts();
+    }
+}
+
+function authenticateAccounts(newAccounts) {
+    newAccounts.forEach(account => {
+        sendRequest('authorize', {
             authorize: account.token,
             req_id: Date.now()
         }, response => {
             if (!response.error) {
-                updateAccount(response.authorize);
-                log(`Authenticated: ${account.loginid}`, 'success');
-                checkCopierStatus(account.loginid);
+                const authData = {
+                    ...response.authorize,
+                    token: account.token,
+                    loginid: account.loginid,
+                    allow_copiers: false
+                };
+
+                if (!accounts.some(a => a.loginid === authData.loginid)) {
+                    accounts.push(authData);
+                    localStorage.setItem('accounts', JSON.stringify(accounts));
+                    updateAccountDisplay();
+                    log(`Authenticated: ${authData.loginid}`, 'success');
+
+                    if (isMasterPage()) {
+                        checkCopierStatus(authData.loginid);
+                    }
+                }
+            } else {
+                log(`Authentication failed for ${account.loginid}: ${response.error.message}`, 'error');
             }
         });
     });
 }
 
-function updateAccount(data) {
-    accounts = accounts.map(acc => 
-        acc.loginid === data.loginid ? { ...acc, ...data } : acc
-    );
-    localStorage.setItem('accounts', JSON.stringify(accounts));
-    updateAccountDisplay();
+function loadStoredAccounts() {
+    const storedAccounts = JSON.parse(localStorage.getItem('accounts')) || [];
+    if (storedAccounts.length > 0) {
+        accounts = storedAccounts;
+        updateAccountDisplay();
+
+        if (isMasterPage()) {
+            refreshClients();
+        } else if (masterDetails) {
+            showMasterDetails();
+        }
+    }
 }
 
+// Master Page Functions
 function checkCopierStatus(loginid) {
     sendRequest('get_settings', {
         get_settings: 1,
@@ -90,7 +123,7 @@ function checkCopierStatus(loginid) {
     }, response => {
         if (!response.error) {
             const allowCopiers = response.get_settings.allow_copiers === 1;
-            accounts = accounts.map(acc => 
+            accounts = accounts.map(acc =>
                 acc.loginid === loginid ? { ...acc, allow_copiers: allowCopiers } : acc
             );
             localStorage.setItem('accounts', JSON.stringify(accounts));
@@ -132,7 +165,7 @@ function refreshClients() {
 function handleClientList(response) {
     const clients = response.copytrading_list.copiers || [];
     const clientList = document.getElementById('clientList');
-    
+
     clientList.innerHTML = clients.map(client => `
         <div class="client-item">
             <div>
@@ -166,7 +199,7 @@ function authenticateMaster(auto = false) {
         masterToken = token;
         localStorage.setItem('masterToken', token);
         localStorage.setItem('masterDetails', JSON.stringify(masterDetails));
-        
+
         if (!auto) tokenInput.value = '';
         showMasterDetails();
         log(`Master authenticated: ${masterDetails.loginid}`, 'success');
@@ -250,7 +283,7 @@ function toggleDropdown() {
 async function logout() {
     // Stop all active copying for clients
     if (!isMasterPage()) {
-        const stopPromises = [...activeCopiers].map(loginid => 
+        const stopPromises = [...activeCopiers].map(loginid =>
             new Promise(resolve => {
                 sendRequest('copy_stop', {
                     copy_stop: masterToken
@@ -278,9 +311,9 @@ async function logout() {
 function sendRequest(type, data, callback) {
     const req_id = Date.now();
     const request = { ...data, req_id };
-    
+
     ws.send(JSON.stringify(request));
-    
+
     const listener = (event) => {
         const response = JSON.parse(event.data);
         if (response.req_id === req_id) {
@@ -288,28 +321,29 @@ function sendRequest(type, data, callback) {
             ws.removeEventListener('message', listener);
         }
     };
-    
+
     ws.addEventListener('message', listener);
 }
 
-function handleError(error) {
-    log(`WebSocket Error: ${error.message}`, 'error');
+function isMasterPage() {
+    return window.location.pathname.endsWith('home.html');
 }
 
-function handleClose() {
-    log('WebSocket connection closed', 'warning');
-    setTimeout(initWebSocket, 5000);
+function log(message, type = 'info') {
+    const logContainer = document.getElementById('logContainer');
+    const entry = document.createElement('div');
+    entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    entry.style.color = {
+        error: '#ff4444',
+        success: '#00ffa5',
+        warning: '#ffdd57',
+        info: '#ffffff'
+    }[type];
+    logContainer.appendChild(entry);
+    logContainer.scrollTop = logContainer.scrollHeight;
 }
 
 // Initialization
 document.addEventListener('DOMContentLoaded', () => {
     initWebSocket();
-    
-    if (isMasterPage()) {
-        updateAccountDisplay();
-        refreshClients();
-    } else {
-        if (masterDetails) showMasterDetails();
-        updateAccountDisplay();
-    }
 });
