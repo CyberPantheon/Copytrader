@@ -122,10 +122,10 @@ const derivWS = {
         const message = errorMessages[error.code] || error.message;
         log(`❌ API Error: ${message} (code: ${error.code})`, 'error');
 
-        if (error.code === 'InvalidToken') {
-            localStorage.removeItem('masterAccounts');
-            window.location.href = 'index.html';
-        }
+      //  if (error.code === 'InvalidToken') {
+          //  localStorage.removeItem('masterAccounts');
+          //  window.location.href = 'index.html';
+       // }
     }
 };
 
@@ -257,9 +257,9 @@ function logout() {
     localStorage.removeItem('masterAccounts');
 
     // Redirect after cleanup
-    setTimeout(() => {
-        window.location.href = 'index.html';
-    }, 1000);
+    //setTimeout(() => {
+        //window.location.href = 'index.html';
+   // }, 1000);
 }
 
 // Response handlers
