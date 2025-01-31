@@ -52,7 +52,10 @@
             z-index: 1;
             border-radius: 8px;
             padding: 10px;
-            top: 110%;
+            top: 100%;
+            left: 0;
+            max-height: 300px;
+            overflow-y: auto;
         }
 
         .account-item {
@@ -61,6 +64,10 @@
             align-items: center;
             padding: 12px;
             border-bottom: 1px solid #404040;
+        }
+
+        .account-item:last-child {
+            border-bottom: none;
         }
 
         .client-list {
@@ -174,5 +181,21 @@
     <div class="log-container" id="logContainer"></div>
 
     <script src="script.js"></script>
+    <script>
+        // Toggle dropdown visibility
+        function toggleDropdown() {
+            const dropdown = document.getElementById('dropdownContent');
+            dropdown.style.display = dropdown.style.display === 'block' ? 'none' : 'block';
+        }
+
+        // Close dropdown when clicking outside
+        document.addEventListener('click', (event) => {
+            const dropdown = document.getElementById('dropdownContent');
+            const accountsDropdown = document.querySelector('.accounts-dropdown');
+            if (!accountsDropdown.contains(event.target)) {
+                dropdown.style.display = 'none';
+            }
+        });
+    </script>
 </body>
 </html>
