@@ -1,108 +1,144 @@
-const ws = new WebSocket('wss://api.deriv.com/websockets/v3');
-const logContainer = document.getElementById('logContainer');
-const dropdownContent = document.getElementById('dropdownContent');
-const clientList = document.getElementById('clientList');
-let userAccounts = [];
+const API_URL = 'wss://ws.binaryws.com/websockets/v3?app_id=66842';
+let ws;
+let masterAccounts = JSON.parse(localStorage.getItem('masterAccounts')) || [];
+let clients = JSON.parse(localStorage.getItem('clients')) || [];
 let selectedAccount = null;
 
-// Logging function
+// Initialize WebSocket connection
+function initWebSocket() {
+    ws = new WebSocket(API_URL);
+    
+    ws.onopen = () => {
+        log('🔌 Connected to Deriv API', 'success');
+        if (masterAccounts.length > 0) {
+            reauthenticateMasters();
+        } else {
+            processOAuthParams();
+        }
+    };
+
+    ws.onmessage = (event) => handleMessage(event);
+    ws.onerror = (error) => handleError(error);
+    ws.onclose = () => handleClose();
+}
+
+// Handle incoming WebSocket messages
+function handleMessage(event) {
+    const response = JSON.parse(event.data);
+    log(`📥 Received: ${JSON.stringify(response)}`, 'info');
+    
+    if (response.error) {
+        log(`❌ Error: ${response.error.message}`, 'error');
+    } else if (response.authorize) {
+        handleAuthorization(response);
+    } else if (response.set_settings) {
+        handleSettingsResponse(response);
+    } else if (response.copy_start || response.copy_stop) {
+        handleCopyResponse(response);
+    } else if (response.copytrading_list) {
+        handleCopierList(response);
+    }
+}
+
+// Handle WebSocket errors
+function handleError(error) {
+    log(`❌ WebSocket Error: ${error.message || 'Unknown error'}`, 'error');
+}
+
+// Handle WebSocket connection close
+function handleClose() {
+    log('⚠️ WebSocket connection closed. Reconnecting...', 'warning');
+    setTimeout(initWebSocket, 5000); // Reconnect after 5 seconds
+}
+
+// Process OAuth parameters from URL
+function processOAuthParams() {
+    const params = new URLSearchParams(window.location.search);
+    const accounts = [];
+    
+    let index = 1;
+    while (params.has(`acct${index}`)) {
+        const account = {
+            loginid: params.get(`acct${index}`),
+            token: params.get(`token${index}`),
+            currency: params.get(`cur${index}`),
+            balance: 'Loading...',
+            allowCopiers: false
+        };
+        accounts.push(account);
+        authorizeAccount(account);
+        index++;
+    }
+    
+    masterAccounts = accounts;
+    localStorage.setItem('masterAccounts', JSON.stringify(masterAccounts));
+    setupAccountsDropdown();
+}
+
+// Authorize an account
+function authorizeAccount(account) {
+    if (ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+            authorize: account.token
+        }));
+    } else {
+        log('⚠️ WebSocket not ready for authorization', 'error');
+    }
+}
+
+// Handle authorization response
+function handleAuthorization(response) {
+    const account = masterAccounts.find(acc => acc.token === response.echo_req.authorize);
+    if (account) {
+        account.balance = response.authorize.balance;
+        account.allowCopiers = response.authorize.scopes.includes('admin');
+        log(`🔓 Authorized: ${account.loginid} - Balance: ${account.balance} ${account.currency}`, 'success');
+        setupAccountsDropdown();
+    }
+}
+
+// Handle settings response
+function handleSettingsResponse(response) {
+    const account = masterAccounts.find(acc => acc.loginid === response.echo_req.loginid);
+    if (account) {
+        account.allowCopiers = response.echo_req.allow_copiers === 1;
+        log(`⚙️ Settings updated for ${account.loginid}: Copiers ${account.allowCopiers ? 'allowed' : 'disallowed'}`, 
+            account.allowCopiers ? 'success' : 'error');
+        setupAccountsDropdown();
+    }
+}
+
+// Handle copier list response
+function handleCopierList(response) {
+    clients = response.copytrading_list.copiers || [];
+    localStorage.setItem('clients', JSON.stringify(clients));
+    updateClientList();
+}
+
+// Update the client list UI
+function updateClientList() {
+    const clientList = document.getElementById('clientList');
+    clientList.innerHTML = clients.map(client => `
+        <div class="client-item">
+            <div>${client.name || 'Anonymous'} (${client.loginid})</div>
+            <div>${client.balance} ${client.currency}</div>
+        </div>
+    `).join('');
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', () => {
+    initWebSocket();
+});
+
+// Logging system
 function log(message, type = 'info') {
+    const logContainer = document.getElementById('logContainer');
     const logEntry = document.createElement('div');
-    logEntry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+    
     logEntry.className = `log-${type}`;
+    logEntry.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
+    
     logContainer.appendChild(logEntry);
     logContainer.scrollTop = logContainer.scrollHeight;
 }
-
-// Handle WebSocket messages
-ws.onmessage = (event) => {
-    const data = JSON.parse(event.data);
-    if (data.error) {
-        log(`❌ Error: ${data.error.message}`, 'error');
-    } else if (data.authorize) {
-        log(`✅ Authorized successfully!`, 'success');
-        userAccounts = data.authorize.account_list;
-        renderAccountsDropdown();
-    } else if (data.set_settings) {
-        log(`⚙️ Settings updated for account: ${selectedAccount.loginid}`, 'success');
-    } else if (data.copytrading_list) {
-        renderCopiers(data.copytrading_list.copiers);
-    }
-};
-
-// Render accounts dropdown
-function renderAccountsDropdown() {
-    dropdownContent.innerHTML = userAccounts
-        .map(
-            (account) => `
-            <div class="account-item">
-                <span>${account.loginid} (${account.currency})</span>
-                <button onclick="toggleAllowCopy('${account.loginid}')" class="${account.allow_copiers ? 'disable-btn' : 'enable-btn'}">
-                    ${account.allow_copiers ? 'Disallow' : 'Allow Copy'}
-                </button>
-            </div>
-        `
-        )
-        .join('');
-    dropdownContent.style.display = 'block';
-}
-
-// Toggle allow_copiers
-function toggleAllowCopy(loginid) {
-    selectedAccount = userAccounts.find((acc) => acc.loginid === loginid);
-    const allowCopiers = !selectedAccount.allow_copiers;
-    ws.send(
-        JSON.stringify({
-            set_settings: 1,
-            loginid: selectedAccount.loginid,
-            allow_copiers: allowCopiers ? 1 : 0,
-        })
-    );
-    log(`🔄 Toggled allow_copiers for account: ${loginid}`, 'info');
-}
-
-// Show copiers
-function showCopiers() {
-    ws.send(JSON.stringify({ copytrading_list: 1 }));
-    log(`🔍 Fetching active copiers...`, 'info');
-}
-
-// Render copiers list
-function renderCopiers(copiers) {
-    clientList.innerHTML = copiers
-        .map(
-            (copier) => `
-            <div class="client-item">
-                <span>${copier.name} (${copier.loginid})</span>
-                <span>Balance: ${copier.balance}</span>
-            </div>
-        `
-        )
-        .join('');
-}
-
-// Logout
-function logout() {
-    ws.send(JSON.stringify({ logout: 1 }));
-    log(`👋 Logged out successfully!`, 'success');
-    setTimeout(() => {
-        window.location.href = 'index.html';
-    }, 1000);
-}
-
-// Toggle dropdown
-function toggleDropdown() {
-    dropdownContent.style.display = dropdownContent.style.display === 'block' ? 'none' : 'block';
-}
-
-// Initialize WebSocket connection
-ws.onopen = () => {
-    log('🌐 WebSocket connection established!', 'success');
-    const urlParams = new URLSearchParams(window.location.search);
-    const token = urlParams.get('token');
-    if (token) {
-        ws.send(JSON.stringify({ authorize: token }));
-    } else {
-        log('❌ No OAuth token found in URL.', 'error');
-    }
-};
