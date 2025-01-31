@@ -13,7 +13,10 @@ function initWebSocket() {
     };
 
     ws.onmessage = (event) => handleMessage(event);
-    ws.onerror = (error) => log(`❌ WebSocket Error: ${error.message}`, 'error');
+    
+    // Improved error handling
+    ws.onerror = (event) => log(`❌ WebSocket Error: ${JSON.stringify(event)}`, 'error');
+
     ws.onclose = () => {
         log('⚠️ WebSocket connection closed. Reconnecting...', 'warning');
         setTimeout(initWebSocket, 5000); // Reconnect after 5 seconds
@@ -61,13 +64,21 @@ function processOAuthParams() {
     }
 }
 
-// Authenticate master accounts
+// Authenticate master accounts with proper WebSocket state checks
 function authenticateMasters(accounts) {
     accounts.forEach(account => {
-        ws.send(JSON.stringify({
-            authorize: account.token
-        }));
+        sendMessage({ authorize: account.token });
     });
+}
+
+// Safe WebSocket message sending function
+function sendMessage(data) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify(data));
+    } else {
+        log('⚠️ WebSocket not ready, retrying...', 'warning');
+        setTimeout(() => sendMessage(data), 1000);
+    }
 }
 
 // Handle authorization response
@@ -109,11 +120,11 @@ function toggleCopyPermissions(loginid, button) {
     if (!account) return;
 
     const newState = !account.allowCopiers;
-    ws.send(JSON.stringify({
+    sendMessage({
         set_settings: 1,
         allow_copiers: newState ? 1 : 0,
         loginid: loginid
-    }));
+    });
 
     button.textContent = newState ? '🚫 Disallow' : '✅ Allow Copy';
     button.classList.toggle('enable-btn');
@@ -122,7 +133,7 @@ function toggleCopyPermissions(loginid, button) {
 
 // Refresh copier list
 function refreshClients() {
-    ws.send(JSON.stringify({ copytrading_list: 1 }));
+    sendMessage({ copytrading_list: 1 });
 }
 
 // Logout and cleanup
@@ -130,11 +141,11 @@ function logout() {
     // Disable copiers for all accounts before logout
     masterAccounts.forEach(account => {
         if (account.allowCopiers) {
-            ws.send(JSON.stringify({
+            sendMessage({
                 set_settings: 1,
                 allow_copiers: 0,
                 loginid: account.loginid
-            }));
+            });
         }
     });
 
