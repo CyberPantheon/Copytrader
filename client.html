@@ -2,36 +2,143 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>Client Copy Trading - Deriv</title>
-    <link rel="stylesheet" href="styles.css">
+    <title>Client Control Panel - Deriv Copy Trading</title>
+    <style>
+        :root {
+            --primary: #2c3e50;
+            --secondary: #3498db;
+            --success: #00ffa5;
+            --danger: #ff4444;
+            --background: #1a1a1a;
+        }
+
+        body {
+            font-family: 'Segoe UI', sans-serif;
+            background: var(--background);
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 30px;
+            gap: 15px;
+        }
+
+        .nav-buttons {
+            display: flex;
+            gap: 10px;
+        }
+
+        .accounts-dropdown {
+            position: relative;
+            background: #2c3e50;
+            border-radius: 8px;
+            padding: 12px;
+            cursor: pointer;
+            flex-grow: 1;
+        }
+
+        .dropdown-content {
+            display: none;
+            position: absolute;
+            background: #34495e;
+            min-width: 300px;
+            box-shadow: 0 8px 16px rgba(0,0,0,0.2);
+            z-index: 1;
+            border-radius: 8px;
+            padding: 10px;
+            top: 110%;
+        }
+
+        .account-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid #404040;
+        }
+
+        .input-group {
+            margin: 20px 0;
+            background: #2c3e50;
+            padding: 20px;
+            border-radius: 8px;
+        }
+
+        input {
+            padding: 10px;
+            border-radius: 5px;
+            border: 1px solid #404040;
+            background: #34495e;
+            color: white;
+            width: 300px;
+            margin-right: 10px;
+        }
+
+        button {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: all 0.3s;
+            min-width: 120px;
+        }
+
+        .enable-btn {
+            background: var(--success);
+            color: black;
+        }
+
+        .disable-btn {
+            background: var(--danger);
+            color: white;
+        }
+
+        .switch-btn {
+            background: #9b59b6;
+            color: white;
+        }
+
+        .master-info {
+            background: #2c3e50;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .log-container {
+            background: #2c3e50;
+            padding: 20px;
+            border-radius: 8px;
+            height: 200px;
+            overflow-y: auto;
+            margin-top: 20px;
+            font-family: monospace;
+        }
+    </style>
 </head>
 <body>
     <div class="header">
-        <div>
-            <button onclick="window.location.href='home.html'" class="switch-btn">
-                👥 Switch to Master View
-            </button>
-            <div class="accounts-dropdown" onclick="toggleDropdown()">
-                <span>🔽 Select Your Account</span>
-                <div class="dropdown-content" id="dropdownContent"></div>
-            </div>
+        <div class="accounts-dropdown" onclick="toggleDropdown()">
+            <span>🔽 Select Client Account</span>
+            <div class="dropdown-content" id="dropdownContent"></div>
         </div>
-        <button onclick="logout()" class="disable-btn">Logout</button>
+        <div class="nav-buttons">
+            <button class="switch-btn" onclick="window.location.href='home.html'">Switch to Master View</button>
+            <button onclick="logout()" class="disable-btn">Logout</button>
+        </div>
     </div>
 
-    <div class="master-section">
-        <h3>Master Account Setup</h3>
-        <div class="input-group">
-            <input type="text" id="masterToken" placeholder="Enter Master API Token">
-            <button onclick="authenticateMaster()">Verify Master</button>
-        </div>
-        <div id="masterInfo" class="master-info"></div>
+    <div class="input-group">
+        <input type="text" id="masterToken" placeholder="Enter Master API Token">
+        <button onclick="authenticateMaster()">Authenticate Master</button>
     </div>
 
-    <div class="client-list">
-        <h3>Your Copy Trading Accounts 📊</h3>
-        <div id="accountList"></div>
-    </div>
+    <div class="master-info" id="masterInfo"></div>
 
     <div class="log-container" id="logContainer"></div>
 
