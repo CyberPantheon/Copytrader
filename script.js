@@ -1,24 +1,30 @@
-let activeConnection = null;
+const APP_ID = 68004; // Your Deriv application ID
 let currentAccounts = [];
 let selectedAccount = null;
-const APP_ID = '68004'; // Your actual app ID
+let isConnected = false;
 
-// WebSocket connection manager
+// WebSocket Manager with proper connection handling
 const derivWS = {
     conn: null,
     reqId: 1,
-    
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 5,
+
     connect: function(token) {
         // Close existing connection if any
-        if (this.conn) {
+        if(this.conn) {
             this.conn.close();
         }
 
-        // Initialize new WebSocket connection
-        this.conn = new WebSocket(`wss://ws.binaryws.com/websockets/v3?app_id=${APP_ID}`);
-        
+        // Create new WebSocket with proper URL format
+        this.conn = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
+
+        // Connection handlers
         this.conn.onopen = () => {
-            log('🔌 WebSocket connected', 'info');
+            log('🔌 WebSocket connection established', 'success');
+            this.reconnectAttempts = 0;
+            isConnected = true;
+            this.sendPing();
             this.authorize(token);
         };
 
@@ -27,18 +33,35 @@ const derivWS = {
                 const response = JSON.parse(e.data);
                 this.handleMessage(response);
             } catch (error) {
-                log(`❌ Error parsing WebSocket message: ${error.message}`, 'error');
+                log(`❌ Message parse error: ${error.message}`, 'error');
             }
         };
-        
+
         this.conn.onerror = (e) => {
-            log(`❌ WebSocket error: ${e.message || 'Unknown error'}`, 'error');
+            log(`⚠️ WebSocket error: ${e.message || 'Unknown error'}`, 'error');
         };
 
-        this.conn.onclose = () => {
-            log('🔌 WebSocket connection closed. Reconnecting...', 'warning');
-            setTimeout(() => this.connect(token), 5000); // Reconnect after 5 seconds
+        this.conn.onclose = (e) => {
+            isConnected = false;
+            if(e.wasClean) {
+                log(`🔌 Connection closed cleanly (code: ${e.code}, reason: ${e.reason})`, 'warning');
+            } else {
+                log('🔌 Connection died unexpectedly. Reconnecting...', 'error');
+                if(this.reconnectAttempts < this.maxReconnectAttempts) {
+                    setTimeout(() => {
+                        this.reconnectAttempts++;
+                        this.connect(token);
+                    }, Math.min(5000, this.reconnectAttempts * 2000));
+                }
+            }
         };
+    },
+
+    sendPing: function() {
+        if(isConnected) {
+            this.send({ ping: 1 });
+            setTimeout(() => this.sendPing(), 30000); // Send ping every 30 seconds
+        }
     },
 
     authorize: function(token) {
@@ -48,55 +71,90 @@ const derivWS = {
     },
 
     send: function(data) {
-        if (this.conn && this.conn.readyState === WebSocket.OPEN) {
+        if(this.conn && this.conn.readyState === WebSocket.OPEN) {
             data.req_id = this.reqId++;
             this.conn.send(JSON.stringify(data));
             log(`📤 Sent: ${JSON.stringify(data)}`, 'info');
+            return true;
         } else {
-            log('⚠️ WebSocket not ready. Attempting to reconnect...', 'error');
-            this.connect(currentAccounts[0]?.token); // Reconnect using the first account's token
+            log('⚠️ WebSocket not ready. Queuing message...', 'warning');
+            return false;
         }
     },
 
     handleMessage: function(response) {
-        log(`📥 Received: ${JSON.stringify(response)}`, 'info');
-        
-        if (response.error) {
-            log(`❌ Error: ${response.error.message} (code: ${response.error.code})`, 'error');
+        // Handle ping response
+        if(response.pong) {
+            log('🏓 Received pong', 'info');
             return;
         }
 
-        if (response.authorize) {
+        log(`📥 Received: ${JSON.stringify(response)}`, 'info');
+
+        if(response.error) {
+            this.handleError(response.error);
+            return;
+        }
+
+        if(response.authorize) {
             handleAuthorization(response);
-        } else if (response.set_settings) {
+        } else if(response.set_settings) {
             handleSettingsResponse(response);
-        } else if (response.copytrading_list) {
+        } else if(response.copytrading_list) {
             handleCopierList(response);
+        }
+    },
+
+    handleError: function(error) {
+        const errorMessages = {
+            1006: 'Connection failed - check network connection',
+            'InvalidAppID': 'Invalid application ID',
+            'RateLimit': 'Too many requests - wait 60 seconds',
+            'InvalidToken': 'Session expired - please relogin'
+        };
+
+        const message = errorMessages[error.code] || error.message;
+        log(`❌ API Error: ${message} (code: ${error.code})`, 'error');
+
+        if(error.code === 'InvalidToken') {
+            localStorage.removeItem('masterAccounts');
+            window.location.href = 'index.html';
         }
     }
 };
 
-// Initialize on page load
+// Initialize application
 document.addEventListener('DOMContentLoaded', () => {
-    const params = new URLSearchParams(window.location.search);
-    const tokens = parseTokensFromURL(params);
+    // Try to load from localStorage first
+    const savedAccounts = JSON.parse(localStorage.getItem('masterAccounts'));
     
-    if (tokens.length === 0) {
-        log('⚠️ No valid accounts found in URL', 'error');
-        return;
-    }
+    if(savedAccounts && savedAccounts.length > 0) {
+        currentAccounts = savedAccounts;
+        setupAccountsDropdown();
+        derivWS.connect(savedAccounts[0].token);
+    } else {
+        // Process OAuth params from URL
+        const params = new URLSearchParams(window.location.search);
+        const tokens = parseTokensFromURL(params);
+        
+        if(tokens.length === 0) {
+            log('⚠️ No valid accounts found in URL', 'error');
+            return;
+        }
 
-    currentAccounts = tokens;
-    setupAccountsDropdown();
-    derivWS.connect(tokens[0].token);
+        currentAccounts = tokens;
+        localStorage.setItem('masterAccounts', JSON.stringify(tokens));
+        setupAccountsDropdown();
+        derivWS.connect(tokens[0].token);
+    }
 });
 
-// Parse OAuth tokens from URL
+// Parse OAuth tokens from URL parameters
 function parseTokensFromURL(params) {
     const accounts = [];
     let i = 1;
     
-    while (params.get(`acct${i}`)) {
+    while(params.get(`acct${i}`)) {
         accounts.push({
             id: params.get(`acct${i}`),
             token: params.get(`token${i}`),
@@ -110,7 +168,7 @@ function parseTokensFromURL(params) {
     return accounts;
 }
 
-// Setup accounts dropdown
+// Update account dropdown UI
 function setupAccountsDropdown() {
     const dropdown = document.getElementById('dropdownContent');
     dropdown.innerHTML = currentAccounts.map(acc => `
@@ -127,25 +185,22 @@ function setupAccountsDropdown() {
     `).join('');
 }
 
-// Toggle copy permissions for an account
+// Toggle copy permissions
 function toggleCopyPermissions(accountId, button) {
     const account = currentAccounts.find(acc => acc.id === accountId);
-    if (!account) {
-        log(`❌ Account ${accountId} not found`, 'error');
-        return;
-    }
+    if(!account) return;
 
     const newState = !account.allowCopiers;
-
-    derivWS.send({
+    
+    if(derivWS.send({
         set_settings: 1,
         allow_copiers: newState ? 1 : 0,
         loginid: accountId
-    });
-
-    button.classList.toggle('enable-btn');
-    button.classList.toggle('disable-btn');
-    button.textContent = newState ? '🚫 Disallow' : '✅ Allow Copy';
+    })) {
+        button.classList.toggle('enable-btn');
+        button.classList.toggle('disable-btn');
+        button.textContent = newState ? '🚫 Disallow' : '✅ Allow Copy';
+    }
 }
 
 // Refresh copiers list
@@ -153,11 +208,11 @@ function refreshClients() {
     derivWS.send({ copytrading_list: 1 });
 }
 
-// Logout and clean up
+// Handle logout
 function logout() {
-    // Disable all copiers before logout
+    // Disable all copiers
     currentAccounts.forEach(acc => {
-        if (acc.allowCopiers) {
+        if(acc.allowCopiers) {
             derivWS.send({
                 set_settings: 1,
                 allow_copiers: 0,
@@ -165,7 +220,11 @@ function logout() {
             });
         }
     });
+
+    // Clear local data
+    localStorage.removeItem('masterAccounts');
     
+    // Redirect after cleanup
     setTimeout(() => {
         window.location.href = 'index.html';
     }, 1000);
@@ -174,9 +233,10 @@ function logout() {
 // Response handlers
 function handleAuthorization(response) {
     const account = currentAccounts.find(acc => acc.token === response.echo_req.authorize);
-    if (account) {
+    if(account) {
         account.balance = response.authorize.balance;
         account.allowCopiers = response.authorize.scopes.includes('admin');
+        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
         setupAccountsDropdown();
         log(`🔓 Authorized: ${account.id} - Balance: ${account.balance} ${account.currency}`, 'success');
     }
@@ -184,16 +244,18 @@ function handleAuthorization(response) {
 
 function handleSettingsResponse(response) {
     const account = currentAccounts.find(acc => acc.id === response.echo_req.loginid);
-    if (account) {
+    if(account) {
         account.allowCopiers = response.echo_req.allow_copiers === 1;
+        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
         log(`⚙️ Settings updated for ${account.id}: Copiers ${account.allowCopiers ? 'allowed' : 'disallowed'}`, 
             account.allowCopiers ? 'success' : 'error');
+        setupAccountsDropdown();
     }
 }
 
 function handleCopierList(response) {
     const clientList = document.getElementById('clientList');
-    if (response.copytrading_list?.copiers) {
+    if(response.copytrading_list?.copiers?.length > 0) {
         clientList.innerHTML = response.copytrading_list.copiers.map(copier => `
             <div class="client-item">
                 <div>${copier.name || 'Anonymous'} (${copier.loginid})</div>
@@ -201,16 +263,22 @@ function handleCopierList(response) {
             </div>
         `).join('');
     } else {
-        log('⚠️ No copiers found', 'warning');
+        clientList.innerHTML = '<div class="client-item">No active copiers found</div>';
     }
 }
 
 // Logging system
 function log(message, type = 'info') {
     const logContainer = document.getElementById('logContainer');
+    const colors = {
+        info: '#3498db',
+        success: '#00ffa5',
+        error: '#ff4444',
+        warning: '#ffa500'
+    };
+
     const logEntry = document.createElement('div');
-    
-    logEntry.className = `log-${type}`;
+    logEntry.style.color = colors[type] || '#ffffff';
     logEntry.innerHTML = `[${new Date().toLocaleTimeString()}] ${message}`;
     
     logContainer.appendChild(logEntry);
