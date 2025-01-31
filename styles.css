@@ -97,6 +97,10 @@ button {
     cursor: pointer;
     transition: all 0.3s;
 }
+.switch-btn {
+    background: #3498db;
+    margin-right: 10px;
+}
 
 .enable-btn { background: var(--success); color: black; }
 .disable-btn { background: var(--danger); color: white; }
