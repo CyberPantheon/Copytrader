@@ -32,7 +32,7 @@ const derivWS = {
         };
         
         this.conn.onerror = (e) => {
-            log(`❌ WebSocket error: ${e.message || 'Unknown error'}`, 'error');
+            log(`❌ WebSocket error..: ${e.message || 'Unknown error'}`, 'error');
         };
 
         this.conn.onclose = () => {
