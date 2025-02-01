@@ -256,10 +256,10 @@ function logout() {
     // Clear local data
     localStorage.removeItem('masterAccounts');
 
-    // Redirect after cleanup
-    //setTimeout(() => {
-        //window.location.href = 'index.html';
-   // }, 1000);
+    Redirect after cleanup
+    setTimeout(() => {
+        window.location.href = 'index.html';
+   }, 1000);
 }
 
 // Response handlers
