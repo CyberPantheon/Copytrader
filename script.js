@@ -124,7 +124,7 @@ const derivWS = {
 
         if (error.code === 'InvalidToken') {
             localStorage.removeItem('masterAccounts');
-            window.location.href = 'index.html';
+            //window.location.href = 'index.html';
         }
     }
 };
