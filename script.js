@@ -8,13 +8,12 @@ let ws;
 const derivWS = {
     conn: null,
     reqId: 1,
-    reconnectAttempts: 0,
-    maxReconnectAttempts: 5,
+    currentToken: null, // Track the current token in use
 
     connect: function (token) {
-        // Close existing connection if any
+        this.currentToken = token; // Set the current token
         if (this.conn) {
-            this.conn.close();
+            this.conn.close(); // Close existing connection if any
         }
 
         // Create new WebSocket with proper URL format
@@ -22,11 +21,11 @@ const derivWS = {
 
         // Connection handlers
         this.conn.onopen = () => {
-            log('🔌 WebSocket connection established', 'success');
+            log('🔌 WebSocket connected', 'success');
             this.reconnectAttempts = 0;
             isConnected = true;
             this.sendPing();
-            this.authorize(token);
+            this.authorize(token); // Authorize with the provided token
         };
 
         this.conn.onmessage = (e) => {
@@ -66,6 +65,7 @@ const derivWS = {
     },
 
     authorize: function (token) {
+        this.currentToken = token; // Update the current token
         this.send({
             authorize: token
         });
@@ -217,21 +217,49 @@ function setupAccountsDropdown() {
     dropdown.style.display = 'block';
 }
 
-// Toggle copy permissions
-function toggleCopyPermissions(accountId, button) {
+// Toggle copy permissions with token switching
+async function toggleCopyPermissions(accountId, button) {
     const account = currentAccounts.find(acc => acc.id === accountId);
     if (!account) return;
 
     const newState = !account.allowCopiers;
 
-    if (derivWS.send({
+    // Switch authentication to target account
+    if (derivWS.currentToken !== account.token) {
+        await new Promise((resolve) => {
+            derivWS.conn.addEventListener('message', function authHandler(e) {
+                const response = JSON.parse(e.data);
+                if (response.authorize && response.authorize.loginid === accountId) {
+                    derivWS.conn.removeEventListener('message', authHandler);
+                    resolve();
+                }
+            });
+            derivWS.authorize(account.token);
+        });
+    }
+
+    // Send settings request
+    derivWS.send({
         set_settings: 1,
         allow_copiers: newState ? 1 : 0,
         loginid: accountId
-    })) {
-        button.classList.toggle('enable-btn');
-        button.classList.toggle('disable-btn');
-        button.textContent = newState ? '🚫 Disallow' : '✅ Allow Copy';
+    });
+}
+
+// Handle settings response
+function handleSettingsResponse(response) {
+    const account = currentAccounts.find(acc => acc.id === response.echo_req.loginid);
+    if (account) {
+        account.allowCopiers = response.echo_req.allow_copiers === 1;
+        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
+        log(`⚙️ Settings updated for ${account.id}: Copiers ${account.allowCopiers ? 'allowed' : 'disallowed'}`,
+            account.allowCopiers ? 'success' : 'error');
+        setupAccountsDropdown();
+
+        // Switch back to main account if needed
+        if (account.id !== currentAccounts[0].id) {
+            derivWS.authorize(currentAccounts[0].token);
+        }
     }
 }
 
@@ -260,43 +288,6 @@ function logout() {
     setTimeout(() => {
         window.location.href = 'index.html';
     }, 1000);
-}
-
-// Response handlers
-function handleAuthorization(response) {
-    const account = currentAccounts.find(acc => acc.token === response.echo_req.authorize);
-    if (account) {
-        account.balance = response.authorize.balance;
-        account.allowCopiers = response.authorize.scopes.includes('admin');
-        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
-        setupAccountsDropdown();
-        log(`🔓 Authorized: ${account.id} - Balance: ${account.balance} ${account.currency}`, 'success');
-    }
-}
-
-function handleSettingsResponse(response) {
-    const account = currentAccounts.find(acc => acc.id === response.echo_req.loginid);
-    if (account) {
-        account.allowCopiers = response.echo_req.allow_copiers === 1;
-        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
-        log(`⚙️ Settings updated for ${account.id}: Copiers ${account.allowCopiers ? 'allowed' : 'disallowed'}`,
-            account.allowCopiers ? 'success' : 'error');
-        setupAccountsDropdown();
-    }
-}
-
-function handleCopierList(response) {
-    const clientList = document.getElementById('clientList');
-    if (response.copytrading_list?.copiers?.length > 0) {
-        clientList.innerHTML = response.copytrading_list.copiers.map(copier => `
-            <div class="client-item">
-                <div>${copier.name || 'Anonymous'} (${copier.loginid})</div>
-                <div>${copier.balance} ${copier.currency}</div>
-            </div>
-        `).join('');
-    } else {
-        clientList.innerHTML = '<div class="client-item">No active copiers found</div>';
-    }
 }
 
 // Logging system
