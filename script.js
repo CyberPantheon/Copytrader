@@ -1,7 +1,7 @@
 const APP_ID = 68004; // Your Deriv application ID
 let currentAccounts = [];
-let selectedAccount = null;
-let isConnected = false;
+let activeCopies = new Map();
+let masterAccount = null;
 let ws;
 
 // WebSocket Manager with proper connection handling
@@ -260,6 +260,21 @@ function handleSettingsResponse(response) {
         if (account.id !== currentAccounts[0].id) {
             derivWS.authorize(currentAccounts[0].token);
         }
+    }
+}
+
+// Handle copiers list response
+function handleCopierList(response) {
+    const clientList = document.getElementById('clientList');
+    if (response.copytrading_list?.copiers?.length > 0) {
+        clientList.innerHTML = response.copytrading_list.copiers.map(copier => `
+            <div class="client-item">
+                <div>${copier.name || 'Anonymous'} (${copier.loginid})</div>
+                <div>${copier.balance} ${copier.currency}</div>
+            </div>
+        `).join('');
+    } else {
+        clientList.innerHTML = '<div class="client-item">No active copiers found</div>';
     }
 }
 
