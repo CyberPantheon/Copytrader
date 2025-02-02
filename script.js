@@ -333,3 +333,15 @@ function log(message, type = 'info') {
     logContainer.appendChild(logEntry);
     logContainer.scrollTop = logContainer.scrollHeight;
 }
+
+// Authorization handler - ADDED MISSING FUNCTION
+function handleAuthorization(response) {
+    const account = currentAccounts.find(acc => acc.token === response.echo_req.authorize);
+    if (account) {
+        account.balance = response.authorize.balance;
+        account.allowCopiers = response.authorize.scopes.includes('admin');
+        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
+        setupAccountsDropdown();
+        log(`🔓 Authorized: ${account.id} - Balance: ${account.balance} ${account.currency}`, 'success');
+    }
+}
