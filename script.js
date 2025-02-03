@@ -1,31 +1,29 @@
-const APP_ID = 68004; // Your Deriv application ID
+const APP_ID = 68004;
 let currentAccounts = [];
 let activeCopies = new Map();
 let masterAccount = null;
 let ws;
+let isConnected = false;
 
-// WebSocket Manager with proper connection handling
 const derivWS = {
     conn: null,
     reqId: 1,
-    currentToken: null, // Track the current token in use
+    currentToken: null,
+    reconnectAttempts: 0,
+    maxReconnectAttempts: 5,
 
-    connect: function (token) {
-        this.currentToken = token; // Set the current token
-        if (this.conn) {
-            this.conn.close(); // Close existing connection if any
-        }
+    connect: function(token) {
+        this.currentToken = token;
+        if(this.conn) this.conn.close();
 
-        // Create new WebSocket with proper URL format
         this.conn = new WebSocket(`wss://ws.derivws.com/websockets/v3?app_id=${APP_ID}`);
 
-        // Connection handlers
         this.conn.onopen = () => {
             log('🔌 WebSocket connected', 'success');
             this.reconnectAttempts = 0;
             isConnected = true;
             this.sendPing();
-            this.authorize(token); // Authorize with the provided token
+            this.authorize(token);
         };
 
         this.conn.onmessage = (e) => {
@@ -43,124 +41,91 @@ const derivWS = {
 
         this.conn.onclose = (e) => {
             isConnected = false;
-            if (e.wasClean) {
-                log(`🔌 Connection closed cleanly (code: ${e.code}, reason: ${e.reason})`, 'warning');
-            } else {
-                log('🔌 Connection died unexpectedly. Reconnecting...', 'error');
-                if (this.reconnectAttempts < this.maxReconnectAttempts) {
-                    setTimeout(() => {
-                        this.reconnectAttempts++;
-                        this.connect(token);
-                    }, Math.min(5000, this.reconnectAttempts * 2000));
-                }
+            if(!e.wasClean && this.reconnectAttempts < this.maxReconnectAttempts) {
+                setTimeout(() => {
+                    this.reconnectAttempts++;
+                    this.connect(token);
+                }, Math.min(5000, this.reconnectAttempts * 2000));
             }
         };
     },
 
-    sendPing: function () {
-        if (isConnected) {
+    sendPing: function() {
+        if(isConnected) {
             this.send({ ping: 1 });
-            setTimeout(() => this.sendPing(), 30000); // Send ping every 30 seconds
+            setTimeout(() => this.sendPing(), 30000);
         }
     },
 
-    authorize: function (token) {
-        this.currentToken = token; // Update the current token
-        this.send({
-            authorize: token
-        });
+    authorize: function(token) {
+        this.currentToken = token;
+        this.send({ authorize: token });
     },
 
-    send: function (data) {
-        if (this.conn && this.conn.readyState === WebSocket.OPEN) {
+    send: function(data) {
+        if(this.conn?.readyState === WebSocket.OPEN) {
             data.req_id = this.reqId++;
             this.conn.send(JSON.stringify(data));
             log(`📤 Sent: ${JSON.stringify(data, null, 2)}`, 'info');
             return true;
-        } else {
-            log('⚠️ WebSocket not ready. Queuing message...', 'warning');
-            return false;
         }
+        log('⚠️ WebSocket not ready', 'warning');
+        return false;
     },
 
-    handleMessage: function (response) {
-        // Handle ping response
-        if (response.pong) {
+    handleMessage: function(response) {
+        if(response.pong) {
             log('🏓 Received pong', 'info');
             return;
         }
 
-        // Improved logging with formatted JSON
         log(`📥 Received: ${JSON.stringify(response, null, 2)}`, 'info');
 
-        if (response.error) {
+        if(response.error) {
             this.handleError(response.error);
             return;
         }
 
-        if (response.authorize) {
+        if(response.authorize) {
             handleAuthorization(response);
-            // Request account list after successful authorization
-            this.send({ account_list: 1 });
-        } else if (response.account_list) {
+        } else if(response.account_list) {
             handleAccountList(response);
-        } else if (response.set_settings) {
+        } else if(response.set_settings) {
             handleSettingsResponse(response);
-        } else if (response.copytrading_list) {
-            handleCopierList(response);
         }
     },
 
-    handleError: function (error) {
+    handleError: function(error) {
         const errorMessages = {
-            1006: 'Connection failed - check network connection',
+            1006: 'Connection failed - check network',
             'InvalidAppID': 'Invalid application ID',
-            'RateLimit': 'Too many requests - wait 60 seconds',
-            'InvalidToken': 'Session expired - please relogin'
+            'RateLimit': 'Too many requests - wait 60s',
+            'InvalidToken': 'Session expired - relogin'
         };
-
-        const message = errorMessages[error.code] || error.message;
-        log(`❌ API Error: ${message} (code: ${error.code})`, 'error');
-
-        if (error.code === 'InvalidToken') {
+        log(`❌ Error: ${errorMessages[error.code] || error.message}`, 'error`);
+        
+        if(error.code === 'InvalidToken') {
             localStorage.removeItem('masterAccounts');
-            //window.location.href = 'index.html';
         }
     }
 };
 
-// Initialize application
 document.addEventListener('DOMContentLoaded', () => {
-    // Try to load from localStorage first
     const savedAccounts = JSON.parse(localStorage.getItem('masterAccounts'));
+    const params = new URLSearchParams(window.location.search);
+    
+    currentAccounts = savedAccounts || parseTokensFromURL(params);
+    if(currentAccounts.length === 0) return;
 
-    if (savedAccounts && savedAccounts.length > 0) {
-        currentAccounts = savedAccounts;
-        setupAccountsDropdown();
-        derivWS.connect(savedAccounts[0].token);
-    } else {
-        // Process OAuth params from URL
-        const params = new URLSearchParams(window.location.search);
-        const tokens = parseTokensFromURL(params);
-
-        if (tokens.length === 0) {
-            log('⚠️ No valid accounts found in URL', 'error');
-            return;
-        }
-
-        currentAccounts = tokens;
-        localStorage.setItem('masterAccounts', JSON.stringify(tokens));
-        setupAccountsDropdown();
-        derivWS.connect(tokens[0].token);
-    }
+    localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
+    setupAccountsDropdown();
+    derivWS.connect(currentAccounts[0].token);
 });
 
-// Parse OAuth tokens from URL parameters
 function parseTokensFromURL(params) {
     const accounts = [];
     let i = 1;
-
-    while (params.get(`acct${i}`)) {
+    while(params.get(`acct${i}`)) {
         accounts.push({
             id: params.get(`acct${i}`),
             token: params.get(`token${i}`),
@@ -170,129 +135,112 @@ function parseTokensFromURL(params) {
         });
         i++;
     }
-
     return accounts;
 }
 
-// Handle account list response
 function handleAccountList(response) {
-    const accounts = response.account_list.map(acc => ({
-        id: acc.loginid,
-        token: currentAccounts.find(a => a.id === acc.loginid)?.token || '',
-        currency: acc.currency,
-        balance: 'Loading...',
-        allowCopiers: false,
-        name: `${acc.account_type} (${acc.landing_company_name})`
-    }));
+    const serverAccounts = response.account_list.reduce((acc, curr) => {
+        acc[curr.loginid] = curr;
+        return acc;
+    }, {});
 
-    // Merge with existing OAuth tokens
-    currentAccounts = accounts.map(newAcc => {
-        const existing = currentAccounts.find(a => a.id === newAcc.id);
-        return existing ? { ...newAcc, token: existing.token } : newAcc;
-    });
+    currentAccounts = currentAccounts.map(acc => ({
+        ...acc,
+        currency: serverAccounts[acc.id]?.currency || acc.currency,
+        allowCopiers: serverAccounts[acc.id]?.allow_copiers === 1
+    }));
 
     localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
     setupAccountsDropdown();
-    log('📋 Account list updated from server', 'success');
 }
 
-// Update account dropdown UI
 function setupAccountsDropdown() {
     const dropdown = document.getElementById('dropdownContent');
     dropdown.innerHTML = currentAccounts.map(acc => `
         <div class="account-item">
             <div>
-                <strong>${acc.name}</strong><br>
-                <small>${acc.id} • ${acc.currency.toUpperCase()}</small><br>
-                ${acc.balance}
+                <strong>${acc.id}</strong>
+                <small>${acc.currency.toUpperCase()} • ${acc.balance}</small>
             </div>
             <button class="${acc.allowCopiers ? 'disable-btn' : 'enable-btn'}" 
-                    onclick="toggleCopyPermissions('${acc.id}', this)">
+                    onclick="toggleCopyPermissions('${acc.id}', this)"
+                    ${acc.id === currentAccounts[0].id ? 'disabled' : ''}>
                 ${acc.allowCopiers ? '🚫 Disallow' : '✅ Allow Copy'}
             </button>
         </div>
     `).join('');
-
-    // Show dropdown after update
-    dropdown.style.display = 'block';
 }
 
-// Toggle copy permissions with token switching
 async function toggleCopyPermissions(accountId, button) {
     const account = currentAccounts.find(acc => acc.id === accountId);
-    if (!account) return;
+    if(!account) return;
 
     const newState = !account.allowCopiers;
+    button.disabled = true;
+    button.textContent = '⌛ Updating...';
 
-    // Switch authentication to target account
-    if (derivWS.currentToken !== account.token) {
-        await new Promise((resolve) => {
-            derivWS.conn.addEventListener('message', function authHandler(e) {
-                const response = JSON.parse(e.data);
-                if (response.authorize && response.authorize.loginid === accountId) {
-                    derivWS.conn.removeEventListener('message', authHandler);
-                    resolve();
-                }
+    try {
+        if(derivWS.currentToken !== account.token) {
+            await new Promise((resolve) => {
+                const authHandler = (e) => {
+                    const res = JSON.parse(e.data);
+                    if(res.authorize?.loginid === accountId) {
+                        derivWS.conn.removeEventListener('message', authHandler);
+                        resolve();
+                    }
+                };
+                derivWS.conn.addEventListener('message', authHandler);
+                derivWS.authorize(account.token);
             });
-            derivWS.authorize(account.token);
+        }
+
+        derivWS.send({
+            set_settings: 1,
+            allow_copiers: newState ? 1 : 0,
+            loginid: accountId
         });
+
+        // Update local state immediately
+        account.allowCopiers = newState;
+        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
+        
+        button.className = newState ? 'disable-btn' : 'enable-btn';
+        button.textContent = newState ? '🚫 Disallow' : '✅ Allow Copy';
+
+    } catch(error) {
+        log(`❌ Update failed: ${error.message}`, 'error');
+        button.className = account.allowCopiers ? 'disable-btn' : 'enable-btn';
+        button.textContent = account.allowCopiers ? '🚫 Disallow' : '✅ Allow Copy';
+    } finally {
+        button.disabled = false;
+        derivWS.authorize(currentAccounts[0].token); // Switch back to main account
     }
-
-    // Send settings request
-    derivWS.send({
-        set_settings: 1,
-        allow_copiers: newState ? 1 : 0,
-        loginid: accountId
-    });
-
-    // Update UI immediately
-    account.allowCopiers = newState;
-    button.textContent = newState ? '🚫 Disallow' : '✅ Allow Copy';
-    button.className = newState ? 'disable-btn' : 'enable-btn';
 }
 
-// Handle settings response
 function handleSettingsResponse(response) {
-    const account = currentAccounts.find(acc => acc.id === response.echo_req.loginid);
-    if (account) {
+    const accountId = response.echo_req.loginid;
+    const account = currentAccounts.find(acc => acc.id === accountId);
+    if(account) {
         account.allowCopiers = response.echo_req.allow_copiers === 1;
         localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
-        log(`⚙️ Settings updated for ${account.id}: Copiers ${account.allowCopiers ? 'allowed' : 'disallowed'}`,
+        log(`⚙️ Copiers ${account.allowCopiers ? 'allowed' : 'disabled'} for ${accountId}`, 
             account.allowCopiers ? 'success' : 'error');
+    }
+}
+
+function handleAuthorization(response) {
+    const account = currentAccounts.find(acc => acc.token === response.echo_req.authorize);
+    if(account) {
+        account.balance = response.authorize.balance;
+        account.allowCopiers = response.authorize.scopes.includes('admin');
+        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
         setupAccountsDropdown();
-
-        // Switch back to main account if needed
-        if (account.id !== currentAccounts[0].id) {
-            derivWS.authorize(currentAccounts[0].token);
-        }
     }
 }
 
-// Handle copiers list response
-function handleCopierList(response) {
-    const clientList = document.getElementById('clientList');
-    if (response.copytrading_list?.copiers?.length > 0) {
-        clientList.innerHTML = response.copytrading_list.copiers.map(copier => `
-            <div class="client-item">
-                <div>${copier.name || 'Anonymous'} (${copier.loginid})</div>
-                <div>${copier.balance} ${copier.currency}</div>
-            </div>
-        `).join('');
-    } else {
-        clientList.innerHTML = '<div class="client-item">No active copiers found</div>';
-    }
-}
-
-// Refresh copiers list
-function refreshClients() {
-    derivWS.send({ copytrading_list: 1 });
-}
-
-// Handle logout
 function logout() {
-    // Disable all copiers
     currentAccounts.forEach(acc => {
-        if (acc.allowCopiers) {
+        if(acc.allowCopiers) {
             derivWS.send({
                 set_settings: 1,
                 allow_copiers: 0,
@@ -300,53 +248,21 @@ function logout() {
             });
         }
     });
-
-    // Clear local data
     localStorage.removeItem('masterAccounts');
-
-    // Redirect after cleanup
-    setTimeout(() => {
-        window.location.href = 'index.html';
-    }, 1000);
+    setTimeout(() => window.location.href = 'index.html', 1000);
 }
 
-// Logging system
 function log(message, type = 'info') {
     const logContainer = document.getElementById('logContainer');
-    const icons = {
-        info: 'ℹ️',
-        success: '✅',
-        error: '❌',
-        warning: '⚠️'
-    };
-
-    const logEntry = document.createElement('div');
-    logEntry.className = `log-${type}`;
-    logEntry.innerHTML = `
-        <div class="log-header">
-            ${icons[type] || '📌'} 
-            <span>[${new Date().toLocaleTimeString()}]</span>
-        </div>
-        <div class="log-content">${message}</div>
+    const entry = document.createElement('div');
+    entry.className = `log-entry log-${type}`;
+    entry.innerHTML = `
+        [${new Date().toLocaleTimeString()}] 
+        ${type === 'error' ? '❌' : type === 'success' ? '✅' : 'ℹ️'} 
+        ${message}
     `;
-
-    // Cleanup old logs
-    if (logContainer.children.length > 50) {
-        logContainer.removeChild(logContainer.firstChild);
-    }
-
-    logContainer.appendChild(logEntry);
+    
+    if(logContainer.children.length > 50) logContainer.firstChild.remove();
+    logContainer.appendChild(entry);
     logContainer.scrollTop = logContainer.scrollHeight;
-}
-
-// Authorization handler - ADDED MISSING FUNCTION
-function handleAuthorization(response) {
-    const account = currentAccounts.find(acc => acc.token === response.echo_req.authorize);
-    if (account) {
-        account.balance = response.authorize.balance;
-        account.allowCopiers = response.authorize.scopes.includes('admin');
-        localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
-        setupAccountsDropdown();
-        log(`🔓 Authorized: ${account.id} - Balance: ${account.balance} ${account.currency}`, 'success');
-    }
 }
