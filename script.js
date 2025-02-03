@@ -3,17 +3,12 @@ let currentAccounts = [];
 let activeCopies = new Map();
 let masterAccount = null;
 let ws;
-let isConnected = false;
-let accountListRequested = false; // Track if account list has been requested
-let isTokenSwitching = false; // Track if a token switch is in progress
 
 // WebSocket Manager with proper connection handling
 const derivWS = {
     conn: null,
     reqId: 1,
     currentToken: null, // Track the current token in use
-    reconnectAttempts: 0,
-    maxReconnectAttempts: 5,
 
     connect: function (token) {
         this.currentToken = token; // Set the current token
@@ -106,10 +101,7 @@ const derivWS = {
         if (response.authorize) {
             handleAuthorization(response);
             // Request account list after successful authorization
-            if (!accountListRequested) {
-                this.send({ account_list: 1 });
-                accountListRequested = true;
-            }
+            this.send({ account_list: 1 });
         } else if (response.account_list) {
             handleAccountList(response);
         } else if (response.set_settings) {
@@ -184,19 +176,21 @@ function parseTokensFromURL(params) {
 
 // Handle account list response
 function handleAccountList(response) {
-    const accounts = response.account_list.map(acc => {
-        const existingAccount = currentAccounts.find(a => a.id === acc.loginid);
-        return {
-            id: acc.loginid,
-            token: existingAccount?.token || '',
-            currency: acc.currency,
-            balance: 'Loading...',
-            allowCopiers: existingAccount?.allowCopiers || false,
-            name: `${acc.account_type} (${acc.landing_company_name})`
-        };
+    const accounts = response.account_list.map(acc => ({
+        id: acc.loginid,
+        token: currentAccounts.find(a => a.id === acc.loginid)?.token || '',
+        currency: acc.currency,
+        balance: 'Loading...',
+        allowCopiers: false,
+        name: `${acc.account_type} (${acc.landing_company_name})`
+    }));
+
+    // Merge with existing OAuth tokens
+    currentAccounts = accounts.map(newAcc => {
+        const existing = currentAccounts.find(a => a.id === newAcc.id);
+        return existing ? { ...newAcc, token: existing.token } : newAcc;
     });
 
-    currentAccounts = accounts;
     localStorage.setItem('masterAccounts', JSON.stringify(currentAccounts));
     setupAccountsDropdown();
     log('📋 Account list updated from server', 'success');
@@ -225,38 +219,31 @@ function setupAccountsDropdown() {
 
 // Toggle copy permissions with token switching
 async function toggleCopyPermissions(accountId, button) {
-    if (isTokenSwitching) return; // Prevent multiple token switches
-
     const account = currentAccounts.find(acc => acc.id === accountId);
     if (!account) return;
 
     const newState = !account.allowCopiers;
-    isTokenSwitching = true;
 
-    try {
-        // Switch authentication to target account
-        if (derivWS.currentToken !== account.token) {
-            await new Promise((resolve) => {
-                derivWS.conn.addEventListener('message', function authHandler(e) {
-                    const response = JSON.parse(e.data);
-                    if (response.authorize && response.authorize.loginid === accountId) {
-                        derivWS.conn.removeEventListener('message', authHandler);
-                        resolve();
-                    }
-                });
-                derivWS.authorize(account.token);
+    // Switch authentication to target account
+    if (derivWS.currentToken !== account.token) {
+        await new Promise((resolve) => {
+            derivWS.conn.addEventListener('message', function authHandler(e) {
+                const response = JSON.parse(e.data);
+                if (response.authorize && response.authorize.loginid === accountId) {
+                    derivWS.conn.removeEventListener('message', authHandler);
+                    resolve();
+                }
             });
-        }
-
-        // Send settings request
-        derivWS.send({
-            set_settings: 1,
-            allow_copiers: newState ? 1 : 0,
-            loginid: accountId
+            derivWS.authorize(account.token);
         });
-    } finally {
-        isTokenSwitching = false;
     }
+
+    // Send settings request
+    derivWS.send({
+        set_settings: 1,
+        allow_copiers: newState ? 1 : 0,
+        loginid: accountId
+    });
 }
 
 // Handle settings response
@@ -347,7 +334,7 @@ function log(message, type = 'info') {
     logContainer.scrollTop = logContainer.scrollHeight;
 }
 
-// Authorization handler
+// Authorization handler - ADDED MISSING FUNCTION
 function handleAuthorization(response) {
     const account = currentAccounts.find(acc => acc.token === response.echo_req.authorize);
     if (account) {
