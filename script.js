@@ -244,6 +244,11 @@ async function toggleCopyPermissions(accountId, button) {
         allow_copiers: newState ? 1 : 0,
         loginid: accountId
     });
+
+    // Update UI immediately
+    account.allowCopiers = newState;
+    button.textContent = newState ? '🚫 Disallow' : '✅ Allow Copy';
+    button.className = newState ? 'disable-btn' : 'enable-btn';
 }
 
 // Handle settings response
