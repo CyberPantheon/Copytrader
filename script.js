@@ -257,9 +257,9 @@ function handleSettingsResponse(response) {
         setupAccountsDropdown();
 
         // Switch back to main account if needed
-        if (account.id !== currentAccounts[0].id) {
-            derivWS.authorize(currentAccounts[0].token);
-        }
+        // if (account.id !== currentAccounts[0].id) {
+        //     derivWS.authorize(currentAccounts[0].token);
+        // }
     }
 }
 
